@@ -66,6 +66,7 @@ function Router() {
           tabBarIcon: ({ color, size, focused }) => {
             const map: Record<string, string> = {
               HomeTab: focused ? 'home-variant' : 'home-variant-outline',
+              SearchTab: 'magnify',
               TrendingTab: 'fire',
               FavoritesTab: focused ? 'bookmark' : 'bookmark-outline',
               ProfileTab: focused ? 'account-circle' : 'account-circle-outline',
@@ -76,6 +77,7 @@ function Router() {
         })}
       >
         <Tab.Screen name="HomeTab" component={HomeScreen} options={{ title: 'Home' }} />
+        <Tab.Screen name="SearchTab" component={HomeScreen} options={{ title: 'Search' }} initialParams={{ mode: 'search' }} />
         <Tab.Screen name="TrendingTab" component={HomeScreen} options={{ title: 'Trending' }} initialParams={{ mode: 'trending' }} />
         <Tab.Screen name="FavoritesTab" component={HomeScreen} options={{ title: 'Favorites' }} initialParams={{ mode: 'favorites' }} />
         <Tab.Screen name="ProfileTab" component={ProfileScreen} options={{ title: 'Profile' }} />

@@ -29,7 +29,7 @@ import type { RootStackParamList } from '../App';
 import { getNoticeCategoryLabel } from '../constants/notices';
 import AttachmentMediaPlayer from '../components/AttachmentMediaPlayer';
 
-type NoticeViewMode = 'feed' | 'trending' | 'most' | 'favorites' | 'suggested';
+type NoticeViewMode = 'feed' | 'trending' | 'most' | 'favorites' | 'suggested' | 'search';
 type NoticeSection = 'for_you' | 'campus_life' | 'business' | 'education';
 
 type NoticeAttachment = {
@@ -72,6 +72,7 @@ const VIEW_MODE_TITLES: Record<NoticeViewMode, string> = {
   most: 'Most Liked',
   favorites: 'Favorites',
   suggested: 'Suggested',
+  search: 'Search',
 };
 
 const VIEW_MODE_ENDPOINTS: Record<Exclude<NoticeViewMode, 'feed'>, string> = {
@@ -79,6 +80,7 @@ const VIEW_MODE_ENDPOINTS: Record<Exclude<NoticeViewMode, 'feed'>, string> = {
   most: '/notices/most-liked/',
   favorites: '/notices/favorites/',
   suggested: '/notices/suggested/',
+  search: '/notices/',
 };
 
 export default function HomeScreen({ navigation, route }: any) {
@@ -117,7 +119,7 @@ export default function HomeScreen({ navigation, route }: any) {
 
   useEffect(() => {
     const requestedMode = route?.params?.mode as NoticeViewMode | undefined;
-    if (requestedMode && requestedMode !== 'feed') {
+    if (requestedMode) {
       setViewMode(requestedMode);
     } else {
       setViewMode('feed');
