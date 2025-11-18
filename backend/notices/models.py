@@ -1,0 +1,118 @@
+from django.conf import settings
+from django.db import models
+
+
+NON_ACADEMIC_DEPARTMENTS = [
+    "Library",
+    "Office",
+    "Sports",
+]
+
+
+class NoticeCategory(models.TextChoices):
+    CAMPUS_LIFE = "campus_life", "Campus Life"
+    BUSINESS = "business", "Business"
+    EDUCATION = "education", "Education"
+    GENERAL = "general", "General"
+
+
+class Notice(models.Model):
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notices"
+    )
+    department = models.CharField(max_length=100, blank=True)
+    category = models.CharField(
+        max_length=32,
+        choices=NoticeCategory.choices,
+        default=NoticeCategory.CAMPUS_LIFE,
+    )
+    is_pinned = models.BooleanField(default=False)
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)
+    views_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["department"]),
+            models.Index(fields=["category"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["is_active"]),
+            models.Index(fields=["is_pinned"]),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return self.title
+
+
+class Like(models.Model):
+    notice = models.ForeignKey(Notice, on_delete=models.CASCADE, related_name="likes")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notice_likes")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["notice", "user"], name="unique_notice_like"),
+        ]
+
+
+class Favorite(models.Model):
+    notice = models.ForeignKey(Notice, on_delete=models.CASCADE, related_name="favorites")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="favorite_notices")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["notice", "user"], name="unique_notice_favorite"),
+        ]
+
+
+class Comment(models.Model):
+    notice = models.ForeignKey(Notice, on_delete=models.CASCADE, related_name="comments")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notice_comments")
+    text = models.TextField()
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        related_name="replies",
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class NoticeView(models.Model):
+    notice = models.ForeignKey(Notice, on_delete=models.CASCADE, related_name="views")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class Report(models.Model):
+    notice = models.ForeignKey(Notice, on_delete=models.CASCADE, related_name="reports")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    reason = models.CharField(max_length=200)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class Attachment(models.Model):
+    notice = models.ForeignKey(Notice, on_delete=models.CASCADE, related_name="attachments")
+    file = models.FileField(upload_to="attachments/")
+    file_type = models.CharField(max_length=20, default="document")
+    original_name = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class CommentLike(models.Model):
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, related_name="likes")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="comment_likes")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["comment", "user"], name="unique_comment_like"),
+        ]
+

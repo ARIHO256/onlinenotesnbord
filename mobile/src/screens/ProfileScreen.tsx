@@ -1,0 +1,303 @@
+import React, { useEffect, useState, useContext, useCallback } from 'react';
+import {
+  Text,
+  View,
+  Image,
+  TouchableOpacity,
+  Alert,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
+import PrimaryButton from '../components/PrimaryButton';
+import { api } from '../api/client';
+import * as ImagePicker from 'expo-image-picker';
+import { useTheme } from '../context/ThemeContext';
+import FormTextInput from '../components/FormTextInput';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../App';
+import Card from '../components/Card';
+import ScreenContainer from '../components/ScreenContainer';
+import SectionHeading from '../components/SectionHeading';
+import { spacing } from '../theme';
+import { AuthContext } from '../context/AuthContext';
+
+type Profile = {
+  id: number;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  is_faculty: boolean;
+  is_staff: boolean;
+  department: string;
+  designation: string;
+  phone: string;
+  avatar_url?: string | null;
+  school?: string | null;
+  course?: string | null;
+  academic_year?: string | null;
+};
+
+export default function ProfileScreen() {
+  const { theme, setMode, mode } = useTheme();
+  const { signOut } = useContext(AuthContext);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  const loadProfile = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = Boolean(opts?.silent);
+      silent ? setRefreshing(true) : setLoading(true);
+      setError(null);
+      try {
+        const response = await api.get('/users/profiles/me/');
+        setProfile(response.data);
+      } catch (err) {
+        if (__DEV__) {
+          // eslint-disable-next-line no-console
+          console.warn('Failed to load profile', err);
+        }
+        setError('Unable to load your profile right now.');
+      } finally {
+        silent ? setRefreshing(false) : setLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  const onSave = async () => {
+    if (!profile) return;
+    const { id, ...rest } = profile;
+    const resp = await api.put(`/users/profiles/${id}/`, rest);
+    setProfile(resp.data);
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Home' }],
+    });
+  };
+
+  const onPickAvatar = async () => {
+    if (!profile) return;
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (perm.status !== 'granted') return;
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (res.canceled) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('avatar', { uri: res.assets[0].uri, name: 'avatar.jpg', type: 'image/jpeg' } as any);
+      const resp = await api.put(`/users/profiles/${profile.id}/`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setProfile(resp.data);
+    } catch (e) {
+      Alert.alert('Upload failed', 'Could not upload avatar');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRefresh = () => loadProfile({ silent: true });
+
+  if (loading) {
+    return (
+      <ScreenContainer title="My Profile" padded={false}>
+        <View style={styles.centeredState}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={[styles.stateText, { color: theme.colors.muted }]}>Loading profile…</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <ScreenContainer title="My Profile" padded={false}>
+        <View style={styles.centeredState}>
+          <Text style={[styles.stateText, { color: theme.colors.text, textAlign: 'center' }]}>
+            {error || 'Profile unavailable.'}
+          </Text>
+          <PrimaryButton title="Retry" onPress={() => loadProfile()} style={styles.retryButton} />
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  return (
+    <ScreenContainer
+      title="My Profile"
+      right={
+        <TouchableOpacity
+          onPress={() => setMode(mode === 'dark' ? 'light' : 'dark')}
+          style={styles.modeToggle}
+          activeOpacity={0.85}
+        >
+          <Text style={{ color: theme.colors.text, fontWeight: '600', fontSize: 12 }}>
+            {mode === 'dark' ? 'Light mode' : 'Dark mode'}
+          </Text>
+        </TouchableOpacity>
+      }
+      padded={false}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
+        }
+      >
+        <Card style={styles.heroCard}>
+          <TouchableOpacity onPress={onPickAvatar} disabled={uploading}>
+            <Image
+              source={{ uri: profile.avatar_url || 'https://via.placeholder.com/160x160.png?text=%20' }}
+              style={styles.avatar}
+            />
+          </TouchableOpacity>
+          <Text style={[styles.heroName, { color: theme.colors.text }]}>
+            {[profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username}
+          </Text>
+          <Text style={{ color: theme.colors.muted }}>{profile.email}</Text>
+          <Text style={{ color: theme.colors.muted, marginTop: spacing.xs }}>
+            {uploading ? 'Uploading avatar…' : 'Tap the photo to update'}
+          </Text>
+        </Card>
+
+        <Card style={{ gap: spacing.md }}>
+          <SectionHeading title="Account overview" />
+          <InfoRow label="Username" value={profile.username} />
+          <InfoRow label="School" value={profile.school || 'Not set'} />
+          <InfoRow label="Course" value={profile.course || 'Not set'} />
+          <InfoRow label="Academic year" value={profile.academic_year || 'Not set'} />
+        </Card>
+
+        <Card style={{ gap: spacing.md }}>
+          <SectionHeading title="Edit details" />
+          <View style={styles.row}>
+            <FormTextInput
+              label="First name"
+              value={profile.first_name ?? ''}
+              onChangeText={(t) => setProfile({ ...profile, first_name: t })}
+              containerStyle={styles.half}
+            />
+            <FormTextInput
+              label="Last name"
+              value={profile.last_name ?? ''}
+              onChangeText={(t) => setProfile({ ...profile, last_name: t })}
+              containerStyle={styles.half}
+            />
+          </View>
+          <View style={styles.row}>
+            <FormTextInput
+              label="Department"
+              value={profile.department ?? ''}
+              onChangeText={(t) => setProfile({ ...profile, department: t })}
+              containerStyle={styles.half}
+            />
+            <FormTextInput
+              label="Designation"
+              value={profile.designation ?? ''}
+              onChangeText={(t) => setProfile({ ...profile, designation: t })}
+              containerStyle={styles.half}
+            />
+          </View>
+          <FormTextInput
+            label="Phone"
+            value={profile.phone ?? ''}
+            onChangeText={(t) => setProfile({ ...profile, phone: t })}
+            keyboardType="phone-pad"
+          />
+          <PrimaryButton title="Save changes" onPress={onSave} />
+        </Card>
+        <PrimaryButton title="Logout" onPress={signOut} />
+      </ScrollView>
+    </ScreenContainer>
+  );
+}
+
+const styles = StyleSheet.create({
+  scrollContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xl,
+    gap: spacing.lg,
+  },
+  heroCard: {
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
+  },
+  avatar: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    marginBottom: spacing.md,
+  },
+  heroName: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: spacing.xs,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  half: {
+    flex: 1,
+  },
+  modeToggle: {
+    paddingVertical: 6,
+    paddingHorizontal: spacing.md,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  centeredState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  stateText: {
+    marginTop: spacing.md,
+    fontSize: 16,
+  },
+  retryButton: {
+    marginTop: spacing.lg,
+    alignSelf: 'center',
+    minWidth: 160,
+  },
+});
+
+const InfoRow = ({ label, value }: { label: string; value?: string | null }) => {
+  const { theme } = useTheme();
+  return (
+    <View style={infoStyles.container}>
+      <Text style={[infoStyles.label, { color: theme.colors.muted }]}>{label}</Text>
+      <Text style={[infoStyles.value, { color: theme.colors.text }]}>{value || '—'}</Text>
+    </View>
+  );
+};
+
+const infoStyles = StyleSheet.create({
+  container: {
+    paddingVertical: 4,
+  },
+  label: {
+    fontSize: 12,
+    textTransform: 'uppercase',
+  },
+  value: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+});
