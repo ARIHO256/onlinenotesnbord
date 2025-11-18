@@ -4,6 +4,7 @@ import {
   FlatList,
   Image,
   Modal,
+  TextInput,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -131,6 +132,12 @@ export default function HomeScreen({ navigation, route }: any) {
       setSection('for_you');
     }
   }, [viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== 'search' && query) {
+      setQuery('');
+    }
+  }, [query, viewMode]);
 
   const fetchPage = useCallback(
     async ({ pageParam = 1 }) => {
@@ -477,7 +484,49 @@ export default function HomeScreen({ navigation, route }: any) {
     trendingList,
   ]);
 
-  const renderListHeader = useCallback(() => {
+  const searchHeader = useMemo(() => {
+    if (viewMode !== 'search') return null;
+    return (
+      <View style={styles.searchBarContainer}>
+        <View
+          style={[
+            styles.searchBar,
+            {
+              backgroundColor: theme.colors.surface,
+              borderColor: theme.colors.border,
+            },
+          ]}
+        >
+          <MaterialCommunityIcons name="magnify" size={18} color={theme.colors.muted} />
+          <TextInput
+            placeholder="Search notices"
+            placeholderTextColor={theme.colors.muted}
+            value={query}
+            onChangeText={setQuery}
+            style={[styles.searchInput, { color: theme.colors.text }]}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+            onSubmitEditing={() => refetch()}
+          />
+          {query ? (
+            <TouchableOpacity
+              onPress={() => setQuery('')}
+              style={{ padding: 4 }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <MaterialCommunityIcons name="close-circle" size={18} color={theme.colors.muted} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        <Text style={[styles.searchHint, { color: theme.colors.muted }]}>
+          Search by title, description, department, or author.
+        </Text>
+      </View>
+    );
+  }, [query, refetch, theme.colors.border, theme.colors.muted, theme.colors.surface, theme.colors.text, viewMode]);
+
+  const listHeader = useMemo(() => {
     return (
       <View style={styles.headerContainer}>
         {net.isConnected === false ? <OfflineBanner /> : null}
@@ -494,16 +543,19 @@ export default function HomeScreen({ navigation, route }: any) {
               {renderTrendingCards}
             </>
           ) : (
-            <View style={styles.modeBanner}>
-              <Text style={{ color: theme.colors.muted, fontSize: 13, fontWeight: '600' }}>
-                {VIEW_MODE_TITLES[viewMode]}
-              </Text>
-            </View>
+            <>
+              <View style={styles.modeBanner}>
+                <Text style={{ color: theme.colors.muted, fontSize: 13, fontWeight: '600' }}>
+                  {VIEW_MODE_TITLES[viewMode]}
+                </Text>
+              </View>
+              {searchHeader}
+            </>
           )}
         </View>
       </View>
     );
-  }, [net.isConnected, renderSectionChip, renderTrendingCards, theme.colors.muted, viewMode]);
+  }, [net.isConnected, renderSectionChip, renderTrendingCards, searchHeader, theme.colors.muted, viewMode]);
 
   const renderEmpty = useCallback(() => {
     if (isInitialLoading) {
@@ -631,7 +683,7 @@ export default function HomeScreen({ navigation, route }: any) {
         onEndReached={() => {
           if (hasNextPage) fetchNextPage();
         }}
-        ListHeaderComponent={renderListHeader}
+        ListHeaderComponent={listHeader}
         ListEmptyComponent={renderEmpty}
         ListFooterComponent={renderFooter}
         contentContainerStyle={styles.listContent}
@@ -650,6 +702,28 @@ const styles = StyleSheet.create({
   headerInner: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
+  },
+  searchBarContainer: {
+    paddingRight: spacing.lg,
+    paddingTop: spacing.sm,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    marginHorizontal: spacing.sm,
+    paddingVertical: 0,
+  },
+  searchHint: {
+    marginTop: spacing.xs,
+    fontSize: 12,
   },
   filterRow: {
     paddingVertical: spacing.md,
