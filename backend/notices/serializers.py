@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from users.models import FriendRequest, get_friend_status
+
 from .models import Attachment, Comment, Favorite, Like, Notice, Report
 
 
@@ -14,6 +16,8 @@ class NoticeSerializer(serializers.ModelSerializer):
     created_by_username = serializers.CharField(source="created_by.username", read_only=True)
     created_by_full_name = serializers.SerializerMethodField()
     created_by_avatar = serializers.SerializerMethodField()
+    created_by_friend_status = serializers.SerializerMethodField()
+    created_by_friend_request_id = serializers.SerializerMethodField()
     likes_count = serializers.IntegerField(source="likes.count", read_only=True)
     favorites_count = serializers.IntegerField(source="favorites.count", read_only=True)
     comments_count = serializers.IntegerField(source="comments.count", read_only=True)
@@ -36,6 +40,8 @@ class NoticeSerializer(serializers.ModelSerializer):
             "created_by_username",
             "created_by_full_name",
             "created_by_avatar",
+            "created_by_friend_status",
+            "created_by_friend_request_id",
             "created_at",
             "updated_at",
             "is_active",
@@ -75,6 +81,25 @@ class NoticeSerializer(serializers.ModelSerializer):
             if request is not None:
                 return request.build_absolute_uri(url)
             return url
+        return None
+
+    def get_created_by_friend_status(self, obj):
+        request = self.context.get("request")
+        viewer = getattr(request, "user", None) if request else None
+        return get_friend_status(viewer, obj.created_by)
+
+    def get_created_by_friend_request_id(self, obj):
+        request = self.context.get("request")
+        viewer = getattr(request, "user", None) if request else None
+        if not viewer or not getattr(viewer, "is_authenticated", False):
+            return None
+        status = get_friend_status(viewer, obj.created_by)
+        if status == "outgoing":
+            pending = FriendRequest.pending_between(viewer, obj.created_by)
+            return pending.id if pending else None
+        if status == "incoming":
+            pending = FriendRequest.pending_between(obj.created_by, viewer)
+            return pending.id if pending else None
         return None
 
     def get_attachments(self, obj):

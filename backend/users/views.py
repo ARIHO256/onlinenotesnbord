@@ -1,11 +1,19 @@
-from rest_framework import permissions, viewsets
+from django.db import models
+from django.shortcuts import get_object_or_404
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import DeviceToken, User
-from .serializers import DeviceTokenSerializer, EmailTokenObtainPairSerializer, RegisterSerializer, UserSerializer
+from .models import DeviceToken, FriendRequest, Friendship, User
+from .serializers import (
+    DeviceTokenSerializer,
+    EmailTokenObtainPairSerializer,
+    FriendRequestSerializer,
+    RegisterSerializer,
+    UserSerializer,
+)
 
 
 class IsSelfOrAdmin(permissions.BasePermission):
@@ -19,21 +27,22 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by("id")
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
+    search_fields = ["username", "first_name", "last_name", "department", "school", "course"]
 
     @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated])
     def me(self, request):
-        serializer = UserSerializer(request.user)
+        serializer = UserSerializer(request.user, context={"request": request})
         return Response(serializer.data)
 
     @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated])
     def faculty(self, request):
         qs = User.objects.filter(is_faculty=True).order_by("id")
-        return Response(UserSerializer(qs, many=True).data)
+        return Response(UserSerializer(qs, many=True, context={"request": request}).data)
 
     @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated])
     def students(self, request):
         qs = User.objects.filter(is_faculty=False).order_by("id")
-        return Response(UserSerializer(qs, many=True).data)
+        return Response(UserSerializer(qs, many=True, context={"request": request}).data)
 
     def get_permissions(self):
         if self.action in ["update", "partial_update", "destroy", "retrieve"]:
@@ -45,7 +54,7 @@ class UserViewSet(viewsets.ModelViewSet):
         """
         Return a read-only view of another user's profile for authenticated viewers.
         """
-        user = self.get_object()
+        user = get_object_or_404(User, pk=pk)
         serializer = UserSerializer(user, context={"request": request})
         return Response(serializer.data)
 
@@ -59,7 +68,7 @@ class RegisterViewSet(viewsets.GenericViewSet):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        return Response(UserSerializer(user).data)
+        return Response(UserSerializer(user, context={"request": request}).data)
 
     @action(detail=False, methods=["post"], permission_classes=[permissions.IsAuthenticated], url_path="register-device")
     def register_device(self, request):
@@ -82,4 +91,72 @@ class EmailTokenObtainPairView(TokenObtainPairView):
     """
 
     serializer_class = EmailTokenObtainPairSerializer
+
+
+class FriendRequestViewSet(viewsets.ModelViewSet):
+    serializer_class = FriendRequestSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        box = self.request.query_params.get("box", "incoming")
+        base_qs = FriendRequest.objects.select_related("sender", "receiver")
+        if box == "outgoing":
+            return base_qs.filter(sender=user, status=FriendRequest.STATUS_PENDING)
+        if box == "all":
+            return base_qs.filter(models.Q(sender=user) | models.Q(receiver=user))
+        return base_qs.filter(receiver=user, status=FriendRequest.STATUS_PENDING)
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        user = request.user
+        if instance.sender != user and instance.receiver != user:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        if instance.status != FriendRequest.STATUS_PENDING:
+            return Response({"detail": "This request has already been processed."}, status=status.HTTP_400_BAD_REQUEST)
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"])
+    def accept(self, request, pk=None):
+        instance = self.get_object()
+        if instance.receiver != request.user:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        if instance.status != FriendRequest.STATUS_PENDING:
+            return Response({"detail": "This request has already been processed."}, status=status.HTTP_400_BAD_REQUEST)
+        instance.accept()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"])
+    def decline(self, request, pk=None):
+        instance = self.get_object()
+        if instance.receiver != request.user:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        if instance.status != FriendRequest.STATUS_PENDING:
+            return Response({"detail": "This request has already been processed."}, status=status.HTTP_400_BAD_REQUEST)
+        instance.decline()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+
+class FriendshipViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request):
+        friends = Friendship.friends_of(request.user).order_by("first_name", "last_name", "username")
+        serializer = UserSerializer(friends, many=True, context={"request": request})
+        return Response(serializer.data)
+
+    def destroy(self, request, pk=None):
+        friend = get_object_or_404(User, pk=pk)
+        if friend == request.user:
+            return Response({"detail": "You cannot remove yourself."}, status=status.HTTP_400_BAD_REQUEST)
+        Friendship.remove_between(request.user, friend)
+        FriendRequest.objects.filter(sender=request.user, receiver=friend).delete()
+        FriendRequest.objects.filter(sender=friend, receiver=request.user).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 

@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
+from django_filters import rest_framework as filters
 
 from django.db import models
 from django.db.models import Q
@@ -39,6 +40,19 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
         return getattr(obj, "created_by_id", None) == getattr(request.user, "id", None)
 
 
+class NoticeFilter(filters.FilterSet):
+    created_by = filters.NumberFilter(field_name="created_by_id")
+
+    class Meta:
+        model = Notice
+        fields = {
+            "department": ["exact"],
+            "is_active": ["exact"],
+            "created_by": ["exact"],
+            "category": ["exact"],
+        }
+
+
 class NoticeViewSet(viewsets.ModelViewSet):
     queryset = Notice.objects.all()
     serializer_class = NoticeSerializer
@@ -46,12 +60,7 @@ class NoticeViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     search_fields = ["title", "description", "department", "created_by__username"]
     ordering_fields = ["created_at", "views_count"]
-    filterset_fields = {
-        "department": ["exact"],
-        "is_active": ["exact"],
-        "created_by": ["exact"],
-        "category": ["exact"],
-    }
+    filterset_class = NoticeFilter
 
     def get_permissions(self):
         unrestricted_actions = {
