@@ -4,9 +4,26 @@ from django.db import models
 from django.utils import timezone
 
 
+class UserDesignation(models.TextChoices):
+    VICE_CHANCELLOR = "vice_chancellor", "Vice Chancellor"
+    REGISTRAR = "registrar", "Registrar"
+    BUSINESS_OFFICE = "business_office", "Business Office"
+    SECURITY = "security", "Head of Security"
+    LECTURER = "lecturer", "Lecturer"
+    DEAN = "dean", "Dean"
+    HOD = "hod", "Head of Department"
+    STUDENT = "student", "Student"
+    OTHER = "other", "Other"
+
+
 class User(AbstractUser):
     is_faculty = models.BooleanField(default=False)
-    designation = models.CharField(max_length=100, blank=True)
+    designation = models.CharField(
+        max_length=100,
+        choices=UserDesignation.choices,
+        blank=True,
+        default=UserDesignation.STUDENT,
+    )
     department = models.CharField(max_length=100, blank=True)
     phone = models.CharField(max_length=20, blank=True)
     avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
@@ -14,6 +31,8 @@ class User(AbstractUser):
     school = models.CharField(max_length=150, blank=True)
     course = models.CharField(max_length=150, blank=True)
     academic_year = models.CharField(max_length=20, blank=True)
+    followed_departments = models.JSONField(default=list, blank=True)
+    notification_preferences = models.JSONField(default=dict, blank=True)
 
 
 class DeviceToken(models.Model):

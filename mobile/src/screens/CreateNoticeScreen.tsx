@@ -37,8 +37,12 @@ import {
   getAllowedCategoryLabels,
   getNoticeCategoryLabel,
   getNoticeCategoryValueFromLabel,
+  NOTICE_PRIORITY_VALUES,
+  NOTICE_PRIORITY_LABELS,
+  getNoticePriorityColor,
 } from '../constants/notices';
-import type { NoticeCategory } from '../constants/notices';
+import type { NoticeCategory, NoticePriority } from '../constants/notices';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import SectionHeading from '../components/SectionHeading';
 
 const FALLBACK_AVATAR = require('../../assets/bu-logo.png');
@@ -49,6 +53,8 @@ const formSchema = z.object({
   description: z.string().trim().min(10, 'Description is required'),
   department: z.string().optional(),
   category: z.enum(FORM_CATEGORY_VALUES),
+  priority: z.enum(['urgent', 'important', 'normal']).optional(),
+  expires_at: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -93,6 +99,11 @@ function CreateNoticeScreen({ navigation }: any) {
   const [ready, setReady] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [isPinned, setIsPinned] = useState(false);
+  const [priority, setPriority] = useState<NoticePriority>('normal');
+  const [expiresAt, setExpiresAt] = useState<Date | null>(null);
+  const [showExpiryPicker, setShowExpiryPicker] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<number | null>(null);
+  const [templates, setTemplates] = useState<any[]>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
@@ -195,6 +206,32 @@ function CreateNoticeScreen({ navigation }: any) {
     },
     [allowedCategoryValues, setValue],
   );
+
+  useEffect(() => {
+    // Load templates
+    api.get('/notices/templates/')
+      .then((response) => {
+        if (Array.isArray(response.data)) {
+          setTemplates(response.data);
+        }
+      })
+      .catch(() => {
+        // Silently fail - templates are optional
+      });
+  }, []);
+
+  useEffect(() => {
+    // Apply template if selected
+    if (selectedTemplate && templates.length > 0) {
+      const template = templates.find((t) => t.id === selectedTemplate);
+      if (template) {
+        setValue('title', template.title_template || '');
+        setValue('description', template.description_template || '');
+        setValue('category', template.category || 'campus_life');
+        setPriority(template.priority || 'normal');
+      }
+    }
+  }, [selectedTemplate, templates, setValue]);
 
   useEffect(() => {
     let mounted = true;
@@ -392,7 +429,7 @@ function CreateNoticeScreen({ navigation }: any) {
         const computedTitle = isStudent
           ? ensureStudentTitle(values.description)
           : values.title.trim();
-        const payload = {
+        const payload: any = {
           title: computedTitle,
           description: values.description.trim(),
           is_active: true,
@@ -401,7 +438,11 @@ function CreateNoticeScreen({ navigation }: any) {
             : initialDepartmentRef.current,
           category: values.category,
           is_pinned: isPinned,
+          priority: priority,
         };
+        if (expiresAt) {
+          payload.expires_at = expiresAt.toISOString();
+        }
         const response = await api.post('/notices/', payload);
         const noticeId = response.data.id;
         const { failed, total } = await uploadAttachments(noticeId);
@@ -420,6 +461,9 @@ function CreateNoticeScreen({ navigation }: any) {
         });
         setAttachments([]);
         setIsPinned(false);
+        setPriority('normal');
+        setExpiresAt(null);
+        setSelectedTemplate(null);
         const successLabel = isCasualUser ? 'Post' : 'Notice';
         const baseMessage =
           failed === 0
@@ -432,9 +476,10 @@ function CreateNoticeScreen({ navigation }: any) {
           { text: isCasualUser ? 'Create another' : 'Add another', style: 'default' },
           { text: 'Go to home', onPress: () => navigation.navigate('Home') },
         ]);
-      } catch (error) {
-        setStatusMessage(`Failed to create ${creationNoun}. Please try again.`);
-        Alert.alert('Error', `We could not create the ${creationNoun}. Please try again.`);
+      } catch (error: any) {
+        const errorMessage = error?.userMessage || error?.response?.data?.detail || `Failed to create ${creationNoun}. Please try again.`;
+        setStatusMessage(errorMessage);
+        Alert.alert('Error', errorMessage);
       }
     },
     [
@@ -632,6 +677,20 @@ function CreateNoticeScreen({ navigation }: any) {
               />
             </View>
 
+            {templates.length > 0 && (
+              <View style={{ marginTop: 16 }}>
+                <OptionPicker
+                  label="Use Template (Optional)"
+                  value={selectedTemplate?.toString() || ''}
+                  options={[
+                    { label: 'None', value: '' },
+                    ...templates.map((t) => ({ label: t.name, value: t.id.toString() })),
+                  ]}
+                  onChange={(val) => setSelectedTemplate(val ? parseInt(val, 10) : null)}
+                />
+              </View>
+            )}
+
             {!isCasualUser ? (
               <View
                 style={{
@@ -641,26 +700,107 @@ function CreateNoticeScreen({ navigation }: any) {
                   padding: 16,
                   gap: 12,
                   backgroundColor: theme.colors.background,
+                  marginTop: 16,
                 }}
               >
-                <Text style={{ fontWeight: '600', color: theme.colors.text }}>Visibility</Text>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <Text style={{ color: theme.colors.text }}>Pin this notice</Text>
-                  <Switch
-                    value={isPinned}
-                    onValueChange={setIsPinned}
-                    thumbColor={isPinned ? theme.colors.primary : undefined}
-                  />
+                <Text style={{ fontWeight: '600', color: theme.colors.text }}>Notice Settings</Text>
+                
+                <View style={{ gap: 12 }}>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.text }}>Pin this notice</Text>
+                    <Switch
+                      value={isPinned}
+                      onValueChange={setIsPinned}
+                      trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+                      thumbColor={isPinned ? theme.colors.primaryContrast : theme.colors.muted}
+                    />
+                  </View>
+
+                  <View>
+                    <Text style={{ color: theme.colors.text, marginBottom: 8 }}>Priority</Text>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      {NOTICE_PRIORITY_VALUES.map((p) => (
+                        <TouchableOpacity
+                          key={p}
+                          onPress={() => setPriority(p)}
+                          style={{
+                            flex: 1,
+                            paddingVertical: 8,
+                            paddingHorizontal: 12,
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: priority === p ? getNoticePriorityColor(p) : theme.colors.border,
+                            backgroundColor: priority === p ? getNoticePriorityColor(p) + '15' : theme.colors.surface,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: priority === p ? getNoticePriorityColor(p) : theme.colors.text,
+                              fontWeight: priority === p ? '700' : '500',
+                              fontSize: 12,
+                            }}
+                          >
+                            {NOTICE_PRIORITY_LABELS[p]}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  <View>
+                    <Text style={{ color: theme.colors.text, marginBottom: 8 }}>Expiration Date (Optional)</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowExpiryPicker(true)}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        borderRadius: 12,
+                        padding: 12,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: theme.colors.surface,
+                      }}
+                    >
+                      <Text style={{ color: expiresAt ? theme.colors.text : theme.colors.muted }}>
+                        {expiresAt ? expiresAt.toLocaleDateString() : 'No expiration'}
+                      </Text>
+                      {expiresAt && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            setExpiresAt(null);
+                            setShowExpiryPicker(false);
+                          }}
+                          style={{ padding: 4 }}
+                        >
+                          <MaterialCommunityIcons name="close-circle" size={20} color={theme.colors.muted} />
+                        </TouchableOpacity>
+                      )}
+                      <MaterialCommunityIcons name="calendar" size={20} color={theme.colors.muted} />
+                    </TouchableOpacity>
+                    {showExpiryPicker && (
+                      <DateTimePicker
+                        value={expiresAt || new Date()}
+                        mode="datetime"
+                        display="default"
+                        minimumDate={new Date()}
+                        onChange={(event, selectedDate) => {
+                          setShowExpiryPicker(Platform.OS === 'ios');
+                          if (selectedDate) {
+                            setExpiresAt(selectedDate);
+                          }
+                        }}
+                      />
+                    )}
+                  </View>
                 </View>
-                <Text style={{ color: theme.colors.muted, fontSize: 12 }}>
-                  Pinned notices stay at the top of the feed for everyone.
-                </Text>
               </View>
             ) : null}
 

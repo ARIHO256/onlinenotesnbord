@@ -117,6 +117,60 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         password = validated_data.pop("password")
         user = User(**validated_data)
+        user.designation = User.UserDesignation.STUDENT
+        user.set_password(password)
+        user.save()
+        return user
+
+
+class StaffRegisterSerializer(serializers.ModelSerializer):
+    """
+    Serializer for registering staff accounts (VC, Registrar, Business Office, Security, Lecturer, Dean, HOD).
+    """
+    password = serializers.CharField(write_only=True)
+    first_name = serializers.CharField(required=True)
+    last_name = serializers.CharField(required=True)
+    designation = serializers.ChoiceField(choices=User.UserDesignation.choices, required=True)
+    department = serializers.CharField(required=False, allow_blank=True)
+    school = serializers.CharField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True)
+
+    class Meta:
+        model = User
+        fields = [
+            "username",
+            "email",
+            "password",
+            "first_name",
+            "last_name",
+            "designation",
+            "department",
+            "school",
+            "phone",
+        ]
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+        designation = validated_data.get("designation", User.UserDesignation.OTHER)
+        
+        user = User(**validated_data)
+        user.designation = designation
+        
+        # Set is_staff and is_faculty based on designation
+        if designation in [
+            User.UserDesignation.VICE_CHANCELLOR,
+            User.UserDesignation.REGISTRAR,
+            User.UserDesignation.BUSINESS_OFFICE,
+            User.UserDesignation.SECURITY,
+            User.UserDesignation.DEAN,
+            User.UserDesignation.HOD,
+        ]:
+            user.is_staff = True
+        
+        if designation == User.UserDesignation.LECTURER:
+            user.is_faculty = True
+            user.is_staff = True
+        
         user.set_password(password)
         user.save()
         return user

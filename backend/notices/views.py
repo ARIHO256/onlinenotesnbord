@@ -21,14 +21,48 @@ from .models import (
     Like,
     Notice,
     NoticeCategory,
+    NoticeTemplate,
+    NoticeReminder,
     NON_ACADEMIC_DEPARTMENTS,
     NoticeView,
     Report,
 )
-from .serializers import AttachmentSerializer, CommentSerializer, NoticeSerializer, ReportSerializer
+from .serializers import AttachmentSerializer, CommentSerializer, NoticeSerializer, NoticeTemplateSerializer, ReportSerializer
 
 
 LEADERSHIP_KEYWORDS = ["registrar", "administrator", "admin", "hod", "head of department"]
+
+# Cross-cutting official departments that send notices to all students
+CROSS_CUTTING_OFFICIAL_DEPARTMENTS = [
+    "Registrar",
+    "Vice Chancellor",
+    "Business Office",
+    "Head of Security",
+    "Chaplain",
+]
+
+# Official designations from User model
+OFFICIAL_DESIGNATIONS = [
+    "vice_chancellor",
+    "registrar",
+    "business_office",
+    "security",
+    "lecturer",
+    "dean",
+    "hod",
+]
+
+OFFICIAL_ROLES_KEYWORDS = [
+    "admin", "administrator", "registrar",
+    "hod", "head of department",
+    "lecturer", "lecture",
+    "guild president", "guild",
+    "coordinator", "class coordinator",
+    "dean", "director",
+    "vice chancellor", "vc",
+    "business office",
+    "security",
+]
 
 
 class IsOwnerOrReadOnly(permissions.BasePermission):
@@ -42,6 +76,9 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
 
 class NoticeFilter(filters.FilterSet):
     created_by = filters.NumberFilter(field_name="created_by_id")
+    priority = filters.ChoiceFilter(choices=[("urgent", "Urgent"), ("important", "Important"), ("normal", "Normal")])
+    expired = filters.BooleanFilter(method="filter_expired")
+    department_list = filters.CharFilter(method="filter_department_list")
 
     class Meta:
         model = Notice
@@ -50,7 +87,20 @@ class NoticeFilter(filters.FilterSet):
             "is_active": ["exact"],
             "created_by": ["exact"],
             "category": ["exact"],
+            "priority": ["exact"],
         }
+
+    def filter_expired(self, queryset, name, value):
+        now = timezone.now()
+        if value:
+            return queryset.filter(expires_at__lte=now)
+        return queryset.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+
+    def filter_department_list(self, queryset, name, value):
+        departments = [d.strip() for d in value.split(",") if d.strip()]
+        if departments:
+            return queryset.filter(department__in=departments)
+        return queryset
 
 
 class NoticeViewSet(viewsets.ModelViewSet):
@@ -92,12 +142,79 @@ class NoticeViewSet(viewsets.ModelViewSet):
 
         now = timezone.now()
         qs = qs.filter(is_active=True).filter(Q(scheduled_at__isnull=True) | Q(scheduled_at__lte=now))
+        # Filter out expired notices
+        qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
 
-        global_actions = {"trending", "most_liked", "favorites", "suggested"}
+        # For students, filter official notices by department/school rules
+        if not getattr(user, "is_staff", False):
+            user_department = getattr(user, "department", "") or ""
+            user_school = getattr(user, "school", "") or ""
+            
+            # Identify official notices (from staff/faculty/leadership roles)
+            designation_filter = Q()
+            for keyword in OFFICIAL_ROLES_KEYWORDS:
+                designation_filter |= Q(created_by__designation__icontains=keyword)
+            
+            # Check for official designations
+            official_designation_filter = Q()
+            for desig in OFFICIAL_DESIGNATIONS:
+                official_designation_filter |= Q(created_by__designation=desig)
+            
+            official_notices_filter = Q(
+                created_by__is_staff=True
+            ) | Q(
+                created_by__is_superuser=True
+            ) | Q(
+                created_by__is_faculty=True
+            ) | designation_filter | official_designation_filter
+            
+            # Cross-cutting departments (all students receive)
+            cross_cutting_filter = Q()
+            for dept in CROSS_CUTTING_OFFICIAL_DEPARTMENTS:
+                cross_cutting_filter |= Q(department__icontains=dept) | Q(created_by__designation__icontains=dept.lower())
+            # Also check for official designations that are cross-cutting
+            cross_cutting_filter |= Q(created_by__designation__in=["vice_chancellor", "registrar", "business_office", "security"])
+            
+            # Department filter for HOD notices
+            department_filter = Q()
+            if user_department:
+                department_filter = Q(department=user_department) | Q(created_by__department=user_department)
+            
+            # School filter for Dean notices
+            school_filter = Q()
+            if user_school:
+                school_filter = Q(created_by__school=user_school)
+            
+            # Filter: Show non-official notices to all, OR official notices that match rules
+            # Official notices must be: cross-cutting OR match department OR match school
+            official_visibility_filter = cross_cutting_filter | department_filter | school_filter
+            
+            # Combine: (NOT official) OR (official AND visible to user)
+            qs = qs.filter(
+                ~official_notices_filter | (official_notices_filter & official_visibility_filter)
+            )
+
+        global_actions = {"trending", "most_liked", "favorites", "suggested", "official"}
         if getattr(self, "action", None) in global_actions:
-            return qs.order_by("-is_pinned", "-created_at")
+            from django.db.models import Case, When, IntegerField
+            priority_order = Case(
+                When(priority="urgent", then=1),
+                When(priority="important", then=2),
+                When(priority="normal", then=3),
+                default=3,
+                output_field=IntegerField(),
+            )
+            return qs.order_by(priority_order, "-is_pinned", "-created_at")
 
-        return qs.order_by("-is_pinned", "-created_at")
+        from django.db.models import Case, When, IntegerField
+        priority_order = Case(
+            When(priority="urgent", then=1),
+            When(priority="important", then=2),
+            When(priority="normal", then=3),
+            default=3,
+            output_field=IntegerField(),
+        )
+        return qs.order_by(priority_order, "-is_pinned", "-created_at")
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -299,12 +416,89 @@ class NoticeViewSet(viewsets.ModelViewSet):
         return Response({"status": "reported"})
 
     def _send_push_to_department(self, notice: Notice) -> None:
+        """
+        Send push notifications based on notice source and department rules:
+        - Cross-cutting departments → all students
+        - HOD notices → only students in that department
+        - Dean notices → only students in that school
+        """
         fcm_key = getattr(settings, "FCM_SERVER_KEY", None)
         if not fcm_key:
             return
         from users.models import DeviceToken, User  # local import
-        users = User.objects.filter(Q(department=notice.department) | Q(department__in=NON_ACADEMIC_DEPARTMENTS))
-        tokens = list(DeviceToken.objects.filter(user__in=users).values_list("token", flat=True))
+        
+        notice_department = notice.department or ""
+        notice_creator = notice.created_by
+        creator_designation_value = getattr(notice_creator, "designation", "") or ""
+        creator_designation = creator_designation_value  # For backward compatibility with string matching
+        creator_department = getattr(notice_creator, "department", "") or ""
+        creator_school = getattr(notice_creator, "school", "") or ""
+        
+        # Check if notice is from cross-cutting department
+        is_cross_cutting = False
+        
+        # Check designation value directly
+        if creator_designation_value in ["vice_chancellor", "registrar", "business_office", "security"]:
+            is_cross_cutting = True
+        else:
+            # Check department names
+            for dept in CROSS_CUTTING_OFFICIAL_DEPARTMENTS:
+                if (dept.lower() in notice_department.lower() or 
+                    dept.lower() in creator_designation.lower() or
+                    dept.lower() in creator_department.lower()):
+                    is_cross_cutting = True
+                    break
+        
+        # Determine target users
+        if is_cross_cutting:
+            # Cross-cutting: send to all students
+            users = User.objects.filter(is_staff=False, is_superuser=False)
+        elif creator_designation_value == "hod" or "hod" in creator_designation.lower() or "head of department" in creator_designation.lower():
+            # HOD notices: only students in that department
+            target_dept = notice_department or creator_department
+            if target_dept:
+                users = User.objects.filter(
+                    department=target_dept,
+                    is_staff=False,
+                    is_superuser=False
+                )
+            else:
+                return  # No department specified, skip
+        elif creator_designation_value == "dean" or "dean" in creator_designation.lower() or "director" in creator_designation.lower():
+            # Dean notices: only students in that school
+            target_school = creator_school
+            if target_school:
+                users = User.objects.filter(
+                    school=target_school,
+                    is_staff=False,
+                    is_superuser=False
+                )
+            else:
+                return  # No school specified, skip
+        elif creator_designation_value == "lecturer":
+            # Lecturer notices: send to their department
+            target_dept = notice_department or creator_department
+            if target_dept:
+                users = User.objects.filter(
+                    department=target_dept,
+                    is_staff=False,
+                    is_superuser=False
+                )
+            else:
+                return  # No department specified, skip
+        else:
+            # Default: send to department or all if no department
+            if notice_department:
+                users = User.objects.filter(
+                    Q(department=notice_department) | Q(department__in=NON_ACADEMIC_DEPARTMENTS),
+                    is_staff=False,
+                    is_superuser=False
+                )
+            else:
+                # No department specified, send to all students
+                users = User.objects.filter(is_staff=False, is_superuser=False)
+        
+        tokens = list(DeviceToken.objects.filter(user__in=users, user__push_enabled=True).values_list("token", flat=True))
         if not tokens:
             return
         try:
@@ -327,6 +521,82 @@ class NoticeViewSet(viewsets.ModelViewSet):
         # Simple heuristic: most views in recent window
         qs = self.get_queryset().order_by("-views_count", "-created_at")[:50]
         serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="official")
+    def official(self, request):
+        """
+        Get notices from official/leadership roles filtered by user's department and school.
+        Rules:
+        - Cross-cutting departments (Registrar, Vice Chancellor, Business Office, Head of Security, Chaplain) → all students
+        - HOD notices → only students in that department
+        - Dean notices → only students in that school
+        - Other official notices → filtered by department/school
+        """
+        user = request.user
+        qs = self.get_queryset()
+        
+        # Filter by official roles
+        designation_filter = Q()
+        for keyword in OFFICIAL_ROLES_KEYWORDS:
+            designation_filter |= Q(created_by__designation__icontains=keyword)
+        
+        # Check for official designations
+        official_designation_filter = Q()
+        for desig in OFFICIAL_DESIGNATIONS:
+            official_designation_filter |= Q(created_by__designation=desig)
+        
+        # Base filter for official notices
+        official_base_qs = qs.filter(
+            Q(created_by__is_staff=True) |
+            Q(created_by__is_superuser=True) |
+            Q(created_by__is_faculty=True) |
+            designation_filter |
+            official_designation_filter
+        )
+        
+        # If user is staff, show all official notices
+        if getattr(user, "is_staff", False):
+            official_qs = official_base_qs
+        else:
+            # For students, filter based on department/school rules
+            user_department = getattr(user, "department", "") or ""
+            user_school = getattr(user, "school", "") or ""
+            
+            # Notices from cross-cutting departments (go to everyone)
+            cross_cutting_filter = Q()
+            for dept in CROSS_CUTTING_OFFICIAL_DEPARTMENTS:
+                cross_cutting_filter |= Q(department__icontains=dept) | Q(created_by__designation__icontains=dept.lower())
+            # Also check for official designations that are cross-cutting
+            cross_cutting_filter |= Q(created_by__designation__in=["vice_chancellor", "registrar", "business_office", "security"])
+            
+            # Notices from user's department (HOD notices)
+            department_filter = Q()
+            if user_department:
+                department_filter = Q(department=user_department) | Q(created_by__department=user_department)
+            
+            # Notices from user's school (Dean notices)
+            school_filter = Q()
+            if user_school:
+                # Match by school name in department or created_by's school
+                school_filter = Q(created_by__school=user_school)
+            
+            # Combine: cross-cutting OR (user's department) OR (user's school)
+            official_qs = official_base_qs.filter(
+                cross_cutting_filter | department_filter | school_filter
+            )
+        
+        # Order by priority, then pinned, then created_at
+        from django.db.models import Case, When, IntegerField
+        priority_order = Case(
+            When(priority="urgent", then=1),
+            When(priority="important", then=2),
+            When(priority="normal", then=3),
+            default=3,
+            output_field=IntegerField(),
+        )
+        official_qs = official_qs.order_by(priority_order, "-is_pinned", "-created_at")[:50]
+        serializer = self.get_serializer(official_qs, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=["get"], url_path="for-you")
@@ -382,4 +652,70 @@ class NoticeViewSet(viewsets.ModelViewSet):
         notice.is_pinned = False
         notice.save(update_fields=["is_pinned"])
         return Response({"status": "unpinned"})
+
+    @action(detail=True, methods=["post"], url_path="remind")
+    def set_reminder(self, request, pk=None):
+        notice = self.get_object()
+        remind_at = request.data.get("remind_at")
+        if not remind_at:
+            return Response({"detail": "remind_at is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            from datetime import datetime
+            remind_datetime = datetime.fromisoformat(remind_at.replace("Z", "+00:00"))
+            NoticeReminder.objects.get_or_create(
+                notice=notice,
+                user=request.user,
+                remind_at=remind_datetime,
+            )
+            return Response({"status": "reminder_set"})
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=["get"], url_path="analytics")
+    def analytics(self, request):
+        if not request.user.is_staff:
+            return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+        from django.db.models import Count, Avg, Q
+        from datetime import timedelta
+        now = timezone.now()
+        last_30_days = now - timedelta(days=30)
+
+        total_notices = Notice.objects.count()
+        active_notices = Notice.objects.filter(is_active=True).count()
+        expired_notices = Notice.objects.filter(expires_at__lte=now).count()
+        recent_notices = Notice.objects.filter(created_at__gte=last_30_days).count()
+
+        priority_stats = Notice.objects.values("priority").annotate(count=Count("id"))
+        category_stats = Notice.objects.values("category").annotate(count=Count("id"))
+        department_stats = Notice.objects.values("department").annotate(count=Count("id")).order_by("-count")[:10]
+
+        avg_views = Notice.objects.aggregate(avg_views=Avg("views_count"))["avg_views"] or 0
+        avg_likes = Notice.objects.aggregate(avg_likes=Avg("likes__id"))["avg_likes"] or 0
+
+        return Response({
+            "total_notices": total_notices,
+            "active_notices": active_notices,
+            "expired_notices": expired_notices,
+            "recent_notices": recent_notices,
+            "priority_stats": list(priority_stats),
+            "category_stats": list(category_stats),
+            "top_departments": list(department_stats),
+            "avg_views": round(avg_views, 2),
+            "avg_likes": round(avg_likes, 2),
+        })
+
+
+class NoticeTemplateViewSet(viewsets.ModelViewSet):
+    queryset = NoticeTemplate.objects.all()
+    serializer_class = NoticeTemplateSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Show public templates or user's own templates
+        qs = qs.filter(Q(is_public=True) | Q(created_by=self.request.user))
+        return qs.order_by("-created_at")
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 

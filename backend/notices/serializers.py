@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from users.models import FriendRequest, get_friend_status
 
-from .models import Attachment, Comment, Favorite, Like, Notice, Report
+from .models import Attachment, Comment, Favorite, Like, Notice, NoticeTemplate, NoticeReminder, Report
 
 
 def _get_max_depth(context: dict) -> int:
@@ -36,7 +36,9 @@ class NoticeSerializer(serializers.ModelSerializer):
             "department",
             "category",
             "is_pinned",
+            "priority",
             "scheduled_at",
+            "expires_at",
             "created_by_username",
             "created_by_full_name",
             "created_by_avatar",
@@ -207,4 +209,25 @@ class CommentSerializer(serializers.ModelSerializer):
         if notice_id and str(value.notice_id) != str(notice_id):
             raise serializers.ValidationError("Parent comment must belong to the same notice.")
         return value
+
+
+class NoticeTemplateSerializer(serializers.ModelSerializer):
+    created_by_username = serializers.CharField(source="created_by.username", read_only=True)
+
+    class Meta:
+        model = NoticeTemplate
+        fields = [
+            "id",
+            "name",
+            "title_template",
+            "description_template",
+            "category",
+            "priority",
+            "created_by",
+            "created_by_username",
+            "is_public",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at", "created_by", "created_by_username"]
 

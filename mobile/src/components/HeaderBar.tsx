@@ -17,7 +17,7 @@ type Props = {
 
 export default function HeaderBar({ title, subtitle, left, right, showProfileAvatar = true }: Props) {
   const { theme } = useTheme();
-  const resolvedSubtitle = subtitle ?? 'Stay informed, stay ahead.';
+  const resolvedSubtitle = subtitle ?? 'Bugema University Notice Board';
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: currentUser } = useCurrentUserProfile();
   const canShowAvatar = showProfileAvatar && !right;

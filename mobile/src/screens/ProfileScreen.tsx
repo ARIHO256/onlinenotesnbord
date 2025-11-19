@@ -24,6 +24,7 @@ import SectionHeading from '../components/SectionHeading';
 import { spacing } from '../theme';
 import { AuthContext } from '../context/AuthContext';
 import ImagePreviewModal from '../components/ImagePreviewModal';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 type Profile = {
   id: number;
@@ -224,7 +225,30 @@ export default function ProfileScreen() {
           />
           <PrimaryButton title="Save changes" onPress={onSave} />
         </Card>
-        <PrimaryButton title="Logout" onPress={signOut} />
+        
+        <Card style={{ marginTop: spacing.lg }}>
+          <SectionHeading title="Settings" />
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Preferences')}
+            style={styles.menuItem}
+          >
+            <MaterialCommunityIcons name="cog-outline" size={24} color={theme.colors.primary} />
+            <Text style={[styles.menuItemText, { color: theme.colors.text }]}>Preferences</Text>
+            <MaterialCommunityIcons name="chevron-right" size={24} color={theme.colors.muted} />
+          </TouchableOpacity>
+          {profile?.is_staff && (
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Analytics')}
+              style={styles.menuItem}
+            >
+              <MaterialCommunityIcons name="chart-line" size={24} color={theme.colors.primary} />
+              <Text style={[styles.menuItemText, { color: theme.colors.text }]}>Analytics Dashboard</Text>
+              <MaterialCommunityIcons name="chevron-right" size={24} color={theme.colors.muted} />
+            </TouchableOpacity>
+          )}
+        </Card>
+        
+        <PrimaryButton title="Logout" onPress={signOut} style={{ marginTop: spacing.lg }} />
       </ScrollView>
       <ImagePreviewModal
         visible={previewVisible}
@@ -309,6 +333,19 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     alignSelf: 'center',
     minWidth: 160,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    gap: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  menuItemText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
   },
 });
 

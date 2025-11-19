@@ -27,6 +27,8 @@ import UserProfileScreen from './screens/UserProfileScreen';
 import InboxScreen from './screens/InboxScreen';
 import ConversationScreen from './screens/ConversationScreen';
 import FriendsScreen from './screens/FriendsScreen';
+import PreferencesScreen from './screens/PreferencesScreen';
+import AnalyticsDashboardScreen from './screens/AnalyticsDashboardScreen';
 import { AuthContext, AuthProvider } from './context/AuthContext';
 import { registerForPushNotificationsAsync } from './push/registerPush';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -46,6 +48,8 @@ export type RootStackParamList = {
   UserProfile: { userId: number; name?: string };
   Conversation: { conversationId: number; title?: string; noticeTitle?: string | null };
   Friends: undefined;
+  Preferences: undefined;
+  Analytics: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -110,6 +114,8 @@ function Router() {
           <Stack.Screen name="UserProfile" component={UserProfileScreen} />
           <Stack.Screen name="Conversation" component={ConversationScreen} />
           <Stack.Screen name="Friends" component={FriendsScreen} />
+          <Stack.Screen name="Preferences" component={PreferencesScreen} />
+          <Stack.Screen name="Analytics" component={AnalyticsDashboardScreen} />
         </>
       )}
     </Stack.Navigator>

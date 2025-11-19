@@ -16,6 +16,12 @@ class NoticeCategory(models.TextChoices):
     GENERAL = "general", "General"
 
 
+class NoticePriority(models.TextChoices):
+    URGENT = "urgent", "Urgent"
+    IMPORTANT = "important", "Important"
+    NORMAL = "normal", "Normal"
+
+
 class Notice(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField()
@@ -29,7 +35,13 @@ class Notice(models.Model):
         default=NoticeCategory.CAMPUS_LIFE,
     )
     is_pinned = models.BooleanField(default=False)
+    priority = models.CharField(
+        max_length=20,
+        choices=NoticePriority.choices,
+        default=NoticePriority.NORMAL,
+    )
     scheduled_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
@@ -43,6 +55,8 @@ class Notice(models.Model):
             models.Index(fields=["created_at"]),
             models.Index(fields=["is_active"]),
             models.Index(fields=["is_pinned"]),
+            models.Index(fields=["priority"]),
+            models.Index(fields=["expires_at"]),
         ]
 
     def __str__(self) -> str:  # pragma: no cover
@@ -115,4 +129,48 @@ class CommentLike(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["comment", "user"], name="unique_comment_like"),
         ]
+
+
+class NoticeTemplate(models.Model):
+    name = models.CharField(max_length=100)
+    title_template = models.CharField(max_length=200, blank=True)
+    description_template = models.TextField()
+    category = models.CharField(
+        max_length=32,
+        choices=NoticeCategory.choices,
+        default=NoticeCategory.GENERAL,
+    )
+    priority = models.CharField(
+        max_length=20,
+        choices=NoticePriority.choices,
+        default=NoticePriority.NORMAL,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="notice_templates",
+        null=True,
+        blank=True,
+    )
+    is_public = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class NoticeReminder(models.Model):
+    notice = models.ForeignKey(Notice, on_delete=models.CASCADE, related_name="reminders")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notice_reminders")
+    remind_at = models.DateTimeField()
+    is_sent = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("notice", "user", "remind_at")
+        ordering = ["remind_at"]
 

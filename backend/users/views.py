@@ -58,6 +58,47 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer = UserSerializer(user, context={"request": request})
         return Response(serializer.data)
 
+    @action(detail=False, methods=["get", "put"], permission_classes=[permissions.IsAuthenticated], url_path="preferences")
+    def preferences(self, request):
+        """Get or update user notification preferences and followed departments."""
+        user = request.user
+        if request.method == "PUT":
+            preferences = request.data.get("notification_preferences", {})
+            departments = request.data.get("followed_departments", [])
+            if isinstance(preferences, dict):
+                user.notification_preferences = {**user.notification_preferences, **preferences}
+            if isinstance(departments, list):
+                user.followed_departments = departments
+            user.save()
+        return Response({
+            "notification_preferences": user.notification_preferences or {},
+            "followed_departments": user.followed_departments or [],
+        })
+
+    @action(detail=False, methods=["post"], permission_classes=[permissions.IsAuthenticated], url_path="follow-department")
+    def follow_department(self, request):
+        """Follow a department."""
+        department = request.data.get("department", "").strip()
+        if not department:
+            return Response({"detail": "Department is required"}, status=status.HTTP_400_BAD_REQUEST)
+        user = request.user
+        if department not in user.followed_departments:
+            user.followed_departments.append(department)
+            user.save()
+        return Response({"status": "followed", "followed_departments": user.followed_departments})
+
+    @action(detail=False, methods=["post"], permission_classes=[permissions.IsAuthenticated], url_path="unfollow-department")
+    def unfollow_department(self, request):
+        """Unfollow a department."""
+        department = request.data.get("department", "").strip()
+        if not department:
+            return Response({"detail": "Department is required"}, status=status.HTTP_400_BAD_REQUEST)
+        user = request.user
+        if department in user.followed_departments:
+            user.followed_departments.remove(department)
+            user.save()
+        return Response({"status": "unfollowed", "followed_departments": user.followed_departments})
+
 
 class RegisterViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
@@ -69,6 +110,26 @@ class RegisterViewSet(viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         return Response(UserSerializer(user, context={"request": request}).data)
+
+    @action(detail=False, methods=["post"], permission_classes=[permissions.IsAuthenticated], url_path="register-staff")
+    def register_staff(self, request):
+        """
+        Register staff accounts (VC, Registrar, Business Office, Security, Lecturer, Dean, HOD).
+        Requires authentication and staff privileges.
+        """
+        from .serializers import StaffRegisterSerializer
+        
+        # Only allow staff/superusers to create staff accounts
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response(
+                {"detail": "You do not have permission to create staff accounts."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = StaffRegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(UserSerializer(user, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=["post"], permission_classes=[permissions.IsAuthenticated], url_path="register-device")
     def register_device(self, request):

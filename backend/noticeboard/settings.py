@@ -114,8 +114,8 @@ SIMPLE_JWT = {
 CORS_ALLOW_ALL_ORIGINS = True
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "NoticeBoard API",
-    "DESCRIPTION": "Django REST API for NoticeBoard",
+    "TITLE": "Bugema University Notice Board API",
+    "DESCRIPTION": "Django REST API for Bugema University Notice Board",
     "VERSION": "1.0.0",
 }
 

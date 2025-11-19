@@ -27,7 +27,7 @@ import { useTheme } from '../context/ThemeContext';
 import { spacing } from '../theme';
 import { useFocusEffect } from '@react-navigation/native';
 import type { RootStackParamList } from '../App';
-import { getNoticeCategoryLabel } from '../constants/notices';
+import { getNoticeCategoryLabel, NOTICE_PRIORITY_VALUES, NOTICE_PRIORITY_LABELS } from '../constants/notices';
 import AttachmentMediaPlayer from '../components/AttachmentMediaPlayer';
 import AttachmentPreviewModal from '../components/AttachmentPreviewModal';
 import { fetchFriendRequests } from '../api/friends';
@@ -52,7 +52,6 @@ type Notice = {
   created_by_avatar?: string | null;
   created_by_friend_status?: string;
   created_by_friend_request_id?: number | null;
-  created_by_friend_request_id?: number | null;
   created_at: string;
   department?: string;
   views_count?: number;
@@ -61,9 +60,10 @@ type Notice = {
   is_liked?: boolean;
   is_favorited?: boolean;
   is_pinned?: boolean;
+  priority?: string | null;
+  expires_at?: string | null;
   attachments?: NoticeAttachment[];
   category?: string | null;
-  created_by_friend_status?: string;
 };
 
 const FEED_SECTIONS: { key: NoticeSection; label: string; icon: string }[] = [
@@ -74,7 +74,7 @@ const FEED_SECTIONS: { key: NoticeSection; label: string; icon: string }[] = [
 ];
 
 const VIEW_MODE_TITLES: Record<NoticeViewMode, string> = {
-  feed: 'NoticeBoard',
+  feed: 'Bugema Notice Board',
   trending: 'Trending Notices',
   most: 'Most Liked',
   favorites: 'Favorites',
@@ -101,6 +101,10 @@ export default function HomeScreen({ navigation, route }: any) {
   const [viewMode, setViewMode] = useState<NoticeViewMode>('feed');
   const [section, setSection] = useState<NoticeSection>('for_you');
   const [query, setQuery] = useState('');
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
+  const [followedDepartments, setFollowedDepartments] = useState<string[]>([]);
+  const [searchPriority, setSearchPriority] = useState<string | null>(null);
+  const [showSearchFilters, setShowSearchFilters] = useState(false);
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
   const [globalPreview, setGlobalPreview] = useState<NoticeAttachment | null>(null);
   const isOnline = net.isConnected !== false;
@@ -122,7 +126,16 @@ export default function HomeScreen({ navigation, route }: any) {
       setIsFaculty(!!r.data.is_faculty);
       setIsStaff(!!r.data.is_staff);
       setCurrentUser(r.data);
+      const followed = r.data.followed_departments || [];
+      setFollowedDepartments(followed);
+      if (followed.length > 0) {
+        setSelectedDepartments([r.data.department, ...followed].filter(Boolean));
+      }
     });
+    api.get('/users/profiles/preferences/').then((r) => {
+      const followed = r.data.followed_departments || [];
+      setFollowedDepartments(followed);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -155,12 +168,18 @@ export default function HomeScreen({ navigation, route }: any) {
         if (section !== 'for_you') {
           params.category = section;
         }
+        if (selectedDepartments.length > 0) {
+          params.department_list = selectedDepartments.join(',');
+        }
       } else {
         url = VIEW_MODE_ENDPOINTS[viewMode] ?? '/notices/';
       }
       params.page = pageParam;
       if (query) {
         params.search = query;
+      }
+      if (searchPriority && viewMode === 'search') {
+        params.priority = searchPriority;
       }
       const response = await api.get(url, {
         params,
@@ -197,7 +216,7 @@ export default function HomeScreen({ navigation, route }: any) {
     isFetching,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ['notices', viewMode, section, query],
+    queryKey: ['notices', viewMode, section, query, selectedDepartments.join(','), searchPriority],
     queryFn: fetchPage,
     getNextPageParam: (lastPage: { results: Notice[]; nextPage?: number }) => lastPage.nextPage,
     enabled: isOnline,
@@ -207,10 +226,10 @@ export default function HomeScreen({ navigation, route }: any) {
     refetchOnMount: 'always',
   });
 
-  const trendingQuery = useQuery({
-    queryKey: ['trending-top'],
+  const officialNoticesQuery = useQuery({
+    queryKey: ['official-notices'],
     queryFn: async () => {
-      const response = await api.get('/notices/trending/');
+      const response = await api.get('/notices/official/');
       const payload = response.data;
       if (Array.isArray(payload)) {
         return payload.filter((item): item is Notice => !!item && typeof item.id !== 'undefined');
@@ -225,7 +244,7 @@ export default function HomeScreen({ navigation, route }: any) {
     refetchIntervalInBackground: true,
     refetchOnMount: 'always',
   });
-  const { refetch: refetchTrending } = trendingQuery;
+  const { refetch: refetchOfficial } = officialNoticesQuery;
   const friendRequestsQuery = useQuery({
     queryKey: ['friend-requests', 'incoming', 'badge'],
     queryFn: () => fetchFriendRequests('incoming'),
@@ -234,9 +253,9 @@ export default function HomeScreen({ navigation, route }: any) {
     useCallback(() => {
       refetch();
       if (viewMode === 'feed') {
-        refetchTrending();
+        refetchOfficial();
       }
-    }, [refetch, refetchTrending, viewMode])
+    }, [refetch, refetchOfficial, viewMode])
   );
 
   useEffect(() => {
@@ -273,9 +292,9 @@ export default function HomeScreen({ navigation, route }: any) {
 
   const secondaryTextColor = theme.colors.muted;
 
-  const trendingList = useMemo(() => {
-    const raw = Array.isArray(trendingQuery.data)
-      ? trendingQuery.data.filter((item): item is Notice => !!item && typeof item.id !== 'undefined')
+  const officialNoticesList = useMemo(() => {
+    const raw = Array.isArray(officialNoticesQuery.data)
+      ? officialNoticesQuery.data.filter((item): item is Notice => !!item && typeof item.id !== 'undefined')
       : [];
     return raw
       .slice()
@@ -283,9 +302,9 @@ export default function HomeScreen({ navigation, route }: any) {
         (a, b) =>
           new Date(b.created_at ?? '').getTime() - new Date(a.created_at ?? '').getTime(),
       );
-  }, [trendingQuery.data]);
+  }, [officialNoticesQuery.data]);
 
-  const showTrending = viewMode === 'feed' && trendingList.length > 0;
+  const showOfficialNotices = viewMode === 'feed' && officialNoticesList.length > 0;
   const isInitialLoading = isFetching && !data;
   const renderSectionChip = useCallback(
     (option: (typeof FEED_SECTIONS)[number]) => {
@@ -339,20 +358,28 @@ export default function HomeScreen({ navigation, route }: any) {
     ({ item }: { item: Notice }) => {
       const createdAtLabel = new Date(item.created_at).toLocaleString();
       const handleLikeToggle = async () => {
-        if (item.is_liked) {
-          await api.post(`/notices/${item.id}/unlike/`);
-        } else {
-          await api.post(`/notices/${item.id}/like/`);
+        try {
+          if (item.is_liked) {
+            await api.post(`/notices/${item.id}/unlike/`);
+          } else {
+            await api.post(`/notices/${item.id}/like/`);
+          }
+          refetch();
+        } catch (error: any) {
+          Alert.alert('Error', error?.userMessage || 'Failed to update like. Please try again.');
         }
-        refetch();
       };
       const handleFavoriteToggle = async () => {
-        if (item.is_favorited) {
-          await api.post(`/notices/${item.id}/unfavorite/`);
-        } else {
-          await api.post(`/notices/${item.id}/favorite/`);
+        try {
+          if (item.is_favorited) {
+            await api.post(`/notices/${item.id}/unfavorite/`);
+          } else {
+            await api.post(`/notices/${item.id}/favorite/`);
+          }
+          if (viewMode === 'favorites') refetch();
+        } catch (error: any) {
+          Alert.alert('Error', error?.userMessage || 'Failed to update favorite. Please try again.');
         }
-        if (viewMode === 'favorites') refetch();
       };
       const goToDetail = () => navigateTo('NoticeDetail', { id: item.id });
       return (
@@ -370,8 +397,8 @@ export default function HomeScreen({ navigation, route }: any) {
     [navigateTo, openAuthorProfile, refetch, viewMode],
   );
 
-  const renderTrendingCards = useMemo(() => {
-    if (!showTrending) return null;
+  const renderOfficialNotices = useMemo(() => {
+    if (!showOfficialNotices) return null;
     const cardStyle = {
       backgroundColor: theme.colors.card,
       borderColor: theme.colors.border,
@@ -379,108 +406,111 @@ export default function HomeScreen({ navigation, route }: any) {
     return (
       <View style={styles.trendingSection}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
-          <MaterialCommunityIcons name='fire' size={18} color={theme.colors.primary} />
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Trending Now</Text>
+          <MaterialCommunityIcons name='shield-check' size={18} color={theme.colors.primary} />
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Official Notices</Text>
         </View>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.trendingScrollContent}
         >
-          {trendingList.slice(0, 8).map((item, index) => {
+          {officialNoticesList.slice(0, 8).map((item, index) => {
             const attachment = item?.attachments && item.attachments.length > 0 ? item.attachments[0] : undefined;
             const categoryLabel = getNoticeCategoryLabel(item?.category);
             return (
               <TouchableOpacity
-                key={`trend-${item?.id ?? index}`}
+                key={`official-${item?.id ?? index}`}
                 activeOpacity={0.85}
                 onPress={() => item && navigateTo('NoticeDetail', { id: item.id })}
                 style={[styles.trendingCard, cardStyle]}
               >
                 <TouchableOpacity
                   activeOpacity={0.85}
-                  onPress={() => item && openAuthorProfile(item)}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    item && openAuthorProfile(item);
+                  }}
                   style={styles.trendingHeader}
                 >
                   {item?.created_by_avatar ? (
                     <Image source={{ uri: item.created_by_avatar }} style={styles.trendingAvatar} />
-                ) : (
+                  ) : (
+                    <View
+                      style={[
+                        styles.trendingAvatar,
+                        styles.avatarPlaceholder,
+                        { backgroundColor: theme.colors.border },
+                      ]}
+                    />
+                  )}
+                  <View style={styles.trendingAuthor}>
+                    <Text style={[styles.trendingTitle, { color: theme.colors.text }]} numberOfLines={1}>
+                      {item?.title ?? 'Untitled'}
+                    </Text>
+                    <Text style={{ color: secondaryTextColor, fontSize: 12 }} numberOfLines={1}>
+                      {item?.created_by_full_name || item?.created_by_username || 'Unknown'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                {categoryLabel ? (
                   <View
                     style={[
-                      styles.trendingAvatar,
-                      styles.avatarPlaceholder,
-                      { backgroundColor: theme.colors.border },
+                      styles.categoryPill,
+                      { backgroundColor: theme.colors.border, marginTop: spacing.xs },
                     ]}
-                  />
-                )}
-                <View style={styles.trendingAuthor}>
-                  <Text style={[styles.trendingTitle, { color: theme.colors.text }]} numberOfLines={1}>
-                    {item?.title ?? 'Untitled'}
-                  </Text>
-                  <Text style={{ color: secondaryTextColor, fontSize: 12 }} numberOfLines={1}>
-                    {item?.created_by_full_name || item?.created_by_username || 'Unknown'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-              {categoryLabel ? (
-                <View
-                  style={[
-                    styles.categoryPill,
-                    { backgroundColor: theme.colors.border, marginTop: spacing.xs },
-                  ]}
-                >
-                  <Text style={[styles.categoryPillText, { color: theme.colors.primary }]}>
-                    {categoryLabel}
-                  </Text>
-                </View>
-              ) : null}
-              <Text style={{ color: secondaryTextColor, marginTop: spacing.sm }} numberOfLines={3}>
-                {item?.description ?? ''}
-              </Text>
-              {attachment &&
-                (() => {
-                  switch (attachment.file_type) {
-                    case 'image':
-                      return (
-                        <TouchableOpacity activeOpacity={0.9} onPress={() => setGlobalPreview(attachment)}>
-                          <View style={styles.trendingMediaWrapper}>
-                            <Image source={{ uri: attachment.url }} style={styles.trendingMedia} resizeMode="cover" />
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    case 'video':
-                    case 'audio':
-                      return (
-                        <TouchableOpacity activeOpacity={0.9} onPress={() => setGlobalPreview(attachment)}>
-                          <View style={styles.trendingMediaWrapper}>
-                            <AttachmentMediaPlayer
-                              uri={attachment.url}
-                              style={styles.trendingVideo}
-                              showControls
-                              contentFit="contain"
-                            />
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    default:
-                      return (
-                        <Pressable
-                          style={styles.trendingDocument}
-                          onPress={(event) => {
-                            event?.stopPropagation?.();
-                            if (attachment.url) {
-                              Linking.openURL(attachment.url);
-                            }
-                          }}
-                        >
-                          <MaterialCommunityIcons name="file-document-outline" size={18} color={theme.colors.primary} />
-                          <Text style={{ color: theme.colors.primary, fontWeight: '600', marginLeft: spacing.xs }}>
-                            {attachment.original_name || 'View attachment'}
-                          </Text>
-                        </Pressable>
-                      );
-                  }
-                })()}
+                  >
+                    <Text style={[styles.categoryPillText, { color: theme.colors.primary }]}>
+                      {categoryLabel}
+                    </Text>
+                  </View>
+                ) : null}
+                <Text style={{ color: secondaryTextColor, marginTop: spacing.sm }} numberOfLines={3}>
+                  {item?.description ?? ''}
+                </Text>
+                {attachment &&
+                  (() => {
+                    switch (attachment.file_type) {
+                      case 'image':
+                        return (
+                          <TouchableOpacity activeOpacity={0.9} onPress={() => setGlobalPreview(attachment)}>
+                            <View style={styles.trendingMediaWrapper}>
+                              <Image source={{ uri: attachment.url }} style={styles.trendingMedia} resizeMode="cover" />
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      case 'video':
+                      case 'audio':
+                        return (
+                          <TouchableOpacity activeOpacity={0.9} onPress={() => setGlobalPreview(attachment)}>
+                            <View style={styles.trendingMediaWrapper}>
+                              <AttachmentMediaPlayer
+                                uri={attachment.url}
+                                style={styles.trendingVideo}
+                                showControls
+                                contentFit="contain"
+                              />
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      default:
+                        return (
+                          <Pressable
+                            style={styles.trendingDocument}
+                            onPress={(event) => {
+                              event?.stopPropagation?.();
+                              if (attachment.url) {
+                                Linking.openURL(attachment.url);
+                              }
+                            }}
+                          >
+                            <MaterialCommunityIcons name="file-document-outline" size={18} color={theme.colors.primary} />
+                            <Text style={{ color: theme.colors.primary, fontWeight: '600', marginLeft: spacing.xs }}>
+                              {attachment.original_name || 'View attachment'}
+                            </Text>
+                          </Pressable>
+                        );
+                    }
+                  })()}
               </TouchableOpacity>
             );
           })}
@@ -491,12 +521,12 @@ export default function HomeScreen({ navigation, route }: any) {
     navigateTo,
     openAuthorProfile,
     secondaryTextColor,
-    showTrending,
+    showOfficialNotices,
     theme.colors.border,
     theme.colors.card,
     theme.colors.primary,
     theme.colors.text,
-    trendingList,
+    officialNoticesList,
   ]);
 
   const searchHeader = useMemo(() => {
@@ -533,13 +563,74 @@ export default function HomeScreen({ navigation, route }: any) {
               <MaterialCommunityIcons name="close-circle" size={18} color={theme.colors.muted} />
             </TouchableOpacity>
           ) : null}
+          <TouchableOpacity
+            onPress={() => setShowSearchFilters(!showSearchFilters)}
+            style={{ padding: 4, marginLeft: spacing.xs }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <MaterialCommunityIcons 
+              name={showSearchFilters ? "filter" : "filter-outline"} 
+              size={18} 
+              color={showSearchFilters ? theme.colors.primary : theme.colors.muted} 
+            />
+          </TouchableOpacity>
         </View>
+        {showSearchFilters && (
+          <View style={{ marginTop: spacing.sm, paddingHorizontal: spacing.lg }}>
+            <Text style={{ color: theme.colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Filter by Priority</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+              <TouchableOpacity
+                onPress={() => setSearchPriority(null)}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: searchPriority === null ? theme.colors.primary : theme.colors.surface,
+                    borderColor: searchPriority === null ? theme.colors.primary : theme.colors.border,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: searchPriority === null ? theme.colors.primaryContrast : theme.colors.text,
+                    fontWeight: '600',
+                    fontSize: 12,
+                  }}
+                >
+                  All
+                </Text>
+              </TouchableOpacity>
+              {NOTICE_PRIORITY_VALUES.map((p) => (
+                <TouchableOpacity
+                  key={p}
+                  onPress={() => setSearchPriority(p)}
+                  style={[
+                    styles.filterChip,
+                    {
+                      backgroundColor: searchPriority === p ? theme.colors.primary : theme.colors.surface,
+                      borderColor: searchPriority === p ? theme.colors.primary : theme.colors.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: searchPriority === p ? theme.colors.primaryContrast : theme.colors.text,
+                      fontWeight: '600',
+                      fontSize: 12,
+                    }}
+                  >
+                    {NOTICE_PRIORITY_LABELS[p]}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
         <Text style={[styles.searchHint, { color: theme.colors.muted }]}>
           Search by title, description, department, or author.
         </Text>
       </View>
     );
-  }, [query, refetch, theme.colors.border, theme.colors.muted, theme.colors.surface, theme.colors.text, viewMode]);
+  }, [query, refetch, searchPriority, showSearchFilters, theme.colors.border, theme.colors.muted, theme.colors.primary, theme.colors.primaryContrast, theme.colors.surface, theme.colors.text, viewMode]);
 
   const listHeader = useMemo(() => {
     return (
@@ -555,7 +646,67 @@ export default function HomeScreen({ navigation, route }: any) {
               >
                 {FEED_SECTIONS.map(renderSectionChip)}
               </ScrollView>
-              {renderTrendingCards}
+              {followedDepartments.length > 0 && (
+                <View style={{ marginTop: spacing.sm }}>
+                  <Text style={{ color: theme.colors.muted, fontSize: 12, marginBottom: spacing.xs, paddingHorizontal: spacing.lg }}>
+                    Departments
+                  </Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.filterRow}
+                  >
+                    <TouchableOpacity
+                      onPress={() => setSelectedDepartments([])}
+                      style={[
+                        styles.filterChip,
+                        {
+                          backgroundColor: selectedDepartments.length === 0 ? theme.colors.primary : theme.colors.surface,
+                          borderColor: selectedDepartments.length === 0 ? theme.colors.primary : theme.colors.border,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: selectedDepartments.length === 0 ? theme.colors.primaryContrast : theme.colors.text,
+                          fontWeight: '600',
+                        }}
+                      >
+                        All
+                      </Text>
+                    </TouchableOpacity>
+                    {followedDepartments.map((dept) => (
+                      <TouchableOpacity
+                        key={dept}
+                        onPress={() => {
+                          if (selectedDepartments.includes(dept)) {
+                            setSelectedDepartments(selectedDepartments.filter((d) => d !== dept));
+                          } else {
+                            setSelectedDepartments([...selectedDepartments, dept]);
+                          }
+                        }}
+                        style={[
+                          styles.filterChip,
+                          {
+                            backgroundColor: selectedDepartments.includes(dept) ? theme.colors.primary : theme.colors.surface,
+                            borderColor: selectedDepartments.includes(dept) ? theme.colors.primary : theme.colors.border,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: selectedDepartments.includes(dept) ? theme.colors.primaryContrast : theme.colors.text,
+                            fontWeight: '600',
+                          }}
+                        >
+                          {dept}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+              {renderOfficialNotices}
             </>
           ) : (
             <>
@@ -570,7 +721,7 @@ export default function HomeScreen({ navigation, route }: any) {
         </View>
       </View>
     );
-  }, [net.isConnected, renderSectionChip, renderTrendingCards, searchHeader, theme.colors.muted, viewMode]);
+  }, [net.isConnected, renderSectionChip, renderOfficialNotices, searchHeader, theme.colors.muted, viewMode]);
 
   const renderEmpty = useCallback(() => {
     if (isInitialLoading) {
@@ -585,9 +736,12 @@ export default function HomeScreen({ navigation, route }: any) {
     }
     return (
       <View style={styles.emptyState}>
-        <MaterialCommunityIcons name='bell-off-outline' size={36} color={secondaryTextColor} />
-        <Text style={[styles.emptyText, { color: secondaryTextColor, marginTop: spacing.sm }]}>
-          No notices to show yet.
+        <MaterialCommunityIcons name='bell-off-outline' size={48} color={secondaryTextColor} />
+        <Text style={[styles.emptyText, { color: secondaryTextColor, marginTop: spacing.md, fontSize: 16, fontWeight: '600' }]}>
+          No notices available
+        </Text>
+        <Text style={[styles.emptyText, { color: secondaryTextColor, marginTop: spacing.xs, fontSize: 14 }]}>
+          Check back later for new announcements
         </Text>
       </View>
     );
@@ -643,7 +797,7 @@ export default function HomeScreen({ navigation, route }: any) {
     );
   }, [canManageUsers, friendRequestsQuery.data?.length, navigateTo, theme.colors.primary, theme.colors.text]);
 
-  const headerTitle = 'Home';
+  const headerTitle = viewMode === 'feed' ? 'Bugema Notice Board' : VIEW_MODE_TITLES[viewMode];
 
   return (
     <>

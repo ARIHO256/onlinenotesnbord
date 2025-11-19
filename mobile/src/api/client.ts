@@ -77,6 +77,18 @@ api.interceptors.response.use(
     if (status === 401) {
       notifyUnauthorized();
     }
+    
+    // Enhance error with user-friendly message
+    if (error.response) {
+      const data = error.response.data as any;
+      const message = data?.detail || data?.message || data?.error || 'An error occurred';
+      (error as any).userMessage = message;
+    } else if (error.request) {
+      (error as any).userMessage = 'Network error. Please check your connection and try again.';
+    } else {
+      (error as any).userMessage = 'An unexpected error occurred. Please try again.';
+    }
+    
     return Promise.reject(error);
   },
 );

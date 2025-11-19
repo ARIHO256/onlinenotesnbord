@@ -202,3 +202,12 @@ export const ACADEMIC_YEARS = Array.from({ length: endYear - startYear }, (_, id
   const second = first + 1;
   return `${first}-${second}`;
 });
+
+// Cross-cutting official departments that send notices to all students
+export const CROSS_CUTTING_OFFICIAL_DEPARTMENTS = [
+  'Registrar',
+  'Vice Chancellor',
+  'Business Office',
+  'Head of Security',
+  'Chaplain',
+];
