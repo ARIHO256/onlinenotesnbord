@@ -23,6 +23,7 @@ import ScreenContainer from '../components/ScreenContainer';
 import SectionHeading from '../components/SectionHeading';
 import { spacing } from '../theme';
 import { AuthContext } from '../context/AuthContext';
+import ImagePreviewModal from '../components/ImagePreviewModal';
 
 type Profile = {
   id: number;
@@ -49,6 +50,7 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewVisible, setPreviewVisible] = useState(false);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const loadProfile = useCallback(
@@ -132,6 +134,8 @@ export default function ProfileScreen() {
     );
   }
 
+  const avatarUri = profile.avatar_url || 'https://via.placeholder.com/160x160.png?text=%20';
+
   return (
     <ScreenContainer
       title="My Profile"
@@ -160,19 +164,18 @@ export default function ProfileScreen() {
         }
       >
         <Card style={styles.heroCard}>
-          <TouchableOpacity onPress={onPickAvatar} disabled={uploading}>
-            <Image
-              source={{ uri: profile.avatar_url || 'https://via.placeholder.com/160x160.png?text=%20' }}
-              style={styles.avatar}
-            />
+          <TouchableOpacity onPress={() => setPreviewVisible(true)} activeOpacity={0.9}>
+            <Image source={{ uri: avatarUri }} style={styles.avatar} />
           </TouchableOpacity>
           <Text style={[styles.heroName, { color: theme.colors.text }]}>
             {[profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username}
           </Text>
           <Text style={{ color: theme.colors.muted }}>{profile.email}</Text>
-          <Text style={{ color: theme.colors.muted, marginTop: spacing.xs }}>
-            {uploading ? 'Uploading avatar…' : 'Tap the photo to update'}
-          </Text>
+          <TouchableOpacity onPress={onPickAvatar} disabled={uploading} style={styles.changePhotoButton}>
+            <Text style={{ color: theme.colors.primary, fontWeight: '600' }}>
+              {uploading ? 'Uploading avatar…' : 'Change photo'}
+            </Text>
+          </TouchableOpacity>
         </Card>
 
         <Card style={{ gap: spacing.md }}>
@@ -223,9 +226,26 @@ export default function ProfileScreen() {
         </Card>
         <PrimaryButton title="Logout" onPress={signOut} />
       </ScrollView>
+      <ImagePreviewModal
+        visible={previewVisible}
+        uri={avatarUri}
+        onClose={() => setPreviewVisible(false)}
+        footer={
+          <TouchableOpacity
+            onPress={() => {
+              setPreviewVisible(false);
+              onPickAvatar();
+            }}
+            style={styles.previewChangeButton}
+          >
+            <Text style={{ color: '#fff', fontWeight: '600' }}>Change photo</Text>
+          </TouchableOpacity>
+        }
+      />
     </ScreenContainer>
   );
 }
+
 
 const styles = StyleSheet.create({
   scrollContent: {
@@ -242,6 +262,20 @@ const styles = StyleSheet.create({
     height: 140,
     borderRadius: 70,
     marginBottom: spacing.md,
+  },
+  changePhotoButton: {
+    borderWidth: 1,
+    borderColor: '#4338CA',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: 999,
+  },
+  previewChangeButton: {
+    borderWidth: 1,
+    borderColor: '#fff',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: 999,
   },
   heroName: {
     fontSize: 20,

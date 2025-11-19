@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   RefreshControl,
@@ -20,6 +21,17 @@ import TweetCard, { NoticeAttachment } from '../components/TweetCard';
 import { spacing } from '../theme';
 import { api } from '../api/client';
 import type { RootStackParamList } from '../App';
+import {
+  acceptFriendRequest,
+  cancelFriendRequest,
+  declineFriendRequest,
+  FriendStatus,
+  removeFriend,
+  sendFriendRequest,
+} from '../api/friends';
+import { openConversation } from '../api/messages';
+import { useCurrentUserProfile } from '../hooks/useCurrentUserProfile';
+import ImagePreviewModal from '../components/ImagePreviewModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'UserProfile'>;
 
@@ -38,6 +50,8 @@ type PublicProfile = {
   academic_year?: string | null;
   phone?: string | null;
   avatar_url?: string | null;
+  friend_status?: FriendStatus;
+  friend_request_id?: number | null;
 };
 
 type NoticeListItem = {
@@ -68,6 +82,10 @@ export default function UserProfileScreen({ route, navigation }: Props) {
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [friendStatus, setFriendStatus] = useState<FriendStatus>('unknown');
+  const [friendRequestId, setFriendRequestId] = useState<number | null>(null);
+  const { data: currentUser } = useCurrentUserProfile();
+  const [previewVisible, setPreviewVisible] = useState(false);
 
   const loadProfile = useCallback(async () => {
     setProfileLoading(true);
@@ -85,6 +103,13 @@ export default function UserProfileScreen({ route, navigation }: Props) {
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
+
+  useEffect(() => {
+    if (profile) {
+      setFriendStatus(profile.friend_status ?? 'unknown');
+      setFriendRequestId(profile.friend_request_id ?? null);
+    }
+  }, [profile]);
 
   const fetchPage = useCallback(
     async ({ pageParam = 1 }) => {
@@ -205,13 +230,161 @@ export default function UserProfileScreen({ route, navigation }: Props) {
     </View>
   );
 
+  const isSelf = profile && currentUser && profile.id === currentUser.id;
+
+  const handleSendFriendRequest = useCallback(async () => {
+    if (!profile) return;
+    try {
+      const request = await sendFriendRequest(profile.id);
+      setFriendStatus('outgoing');
+      setFriendRequestId(request.id);
+      Alert.alert('Request sent', 'Friend request sent successfully.');
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || 'Unable to send a friend request.';
+      Alert.alert('Error', detail);
+    }
+  }, [profile]);
+
+  const handleCancelFriendRequest = useCallback(async () => {
+    if (!friendRequestId) return;
+    try {
+      await cancelFriendRequest(friendRequestId);
+      setFriendStatus('none');
+      setFriendRequestId(null);
+    } catch {
+      Alert.alert('Error', 'Unable to cancel this request.');
+    }
+  }, [friendRequestId]);
+
+  const handleAcceptFriendRequest = useCallback(async () => {
+    if (!friendRequestId) return;
+    try {
+      await acceptFriendRequest(friendRequestId);
+      setFriendStatus('friends');
+      setFriendRequestId(null);
+      loadProfile();
+    } catch {
+      Alert.alert('Error', 'Unable to accept this request.');
+    }
+  }, [friendRequestId, loadProfile]);
+
+  const handleDeclineFriendRequest = useCallback(async () => {
+    if (!friendRequestId) return;
+    try {
+      await declineFriendRequest(friendRequestId);
+      setFriendStatus('none');
+      setFriendRequestId(null);
+    } catch {
+      Alert.alert('Error', 'Unable to decline this request.');
+    }
+  }, [friendRequestId]);
+
+  const handleRemoveFriend = useCallback(async () => {
+    if (!profile) return;
+    Alert.alert('Remove friend', `Remove ${profile.first_name || profile.username} from your friends list?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await removeFriend(profile.id);
+            setFriendStatus('none');
+          } catch {
+            Alert.alert('Error', 'Unable to remove this friend.');
+          }
+        },
+      },
+    ]);
+  }, [profile]);
+
+  const handleMessageFriend = useCallback(async () => {
+    if (!profile) return;
+    try {
+      const conversation = await openConversation({ recipient_id: profile.id });
+      navigation.navigate('Conversation', {
+        conversationId: conversation.id,
+        title: displayName,
+      });
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || 'Messaging is only available to friends.';
+      Alert.alert('Unable to message', detail);
+    }
+  }, [displayName, navigation, profile]);
+
+  const renderFriendActions = () => {
+    if (!profile || isSelf) return null;
+    switch (friendStatus) {
+      case 'friends':
+        return (
+          <View style={styles.friendActions}>
+            <TouchableOpacity
+              style={[styles.friendPrimaryButton, { backgroundColor: theme.colors.primary }]}
+              onPress={handleMessageFriend}
+            >
+              <Text style={{ color: theme.colors.primaryContrast, fontWeight: '600' }}>Message</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.friendSecondaryButton, { borderColor: theme.colors.border }]}
+              onPress={handleRemoveFriend}
+            >
+              <Text style={{ color: theme.colors.text, fontWeight: '600' }}>Remove</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      case 'incoming':
+        return (
+          <View style={styles.friendActions}>
+            <TouchableOpacity
+              style={[styles.friendPrimaryButton, { backgroundColor: theme.colors.primary }]}
+              onPress={handleAcceptFriendRequest}
+            >
+              <Text style={{ color: theme.colors.primaryContrast, fontWeight: '600' }}>Confirm</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.friendSecondaryButton, { borderColor: theme.colors.border }]}
+              onPress={handleDeclineFriendRequest}
+            >
+              <Text style={{ color: theme.colors.text, fontWeight: '600' }}>Decline</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      case 'outgoing':
+        return (
+          <View style={styles.friendActions}>
+            <View style={[styles.friendSecondaryButton, { borderColor: theme.colors.border }]}>
+              <Text style={{ color: theme.colors.muted, fontWeight: '600' }}>Request sent</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.friendSecondaryButton, { borderColor: theme.colors.border }]}
+              onPress={handleCancelFriendRequest}
+            >
+              <Text style={{ color: theme.colors.text, fontWeight: '600' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      default:
+        return (
+          <View style={styles.friendActions}>
+            <TouchableOpacity
+              style={[styles.friendPrimaryButton, { backgroundColor: theme.colors.primary }]}
+              onPress={handleSendFriendRequest}
+            >
+              <Text style={{ color: theme.colors.primaryContrast, fontWeight: '600' }}>Add Friend</Text>
+            </TouchableOpacity>
+          </View>
+        );
+    }
+  };
+
   const displayName =
     profile && (profile.first_name || profile.last_name)
       ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim()
       : profile?.username || name || 'Profile';
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: theme.colors.background }]}>
+    <>
+      <SafeAreaView style={[styles.screen, { backgroundColor: theme.colors.background }]}>
       <HeaderBar
         title={displayName}
         subtitle={profile?.department || 'Community member'}
@@ -235,10 +408,12 @@ export default function UserProfileScreen({ route, navigation }: Props) {
               ) : profile ? (
                 <>
                   <View style={styles.profileRow}>
-                    <Image
-                      source={{ uri: profile.avatar_url || AVATAR_FALLBACK }}
-                      style={styles.profileAvatar}
-                    />
+                    <TouchableOpacity onPress={() => setPreviewVisible(true)} activeOpacity={0.9}>
+                      <Image
+                        source={{ uri: profile.avatar_url || AVATAR_FALLBACK }}
+                        style={styles.profileAvatar}
+                      />
+                    </TouchableOpacity>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.profileName, { color: theme.colors.text }]}>{displayName}</Text>
                       <Text style={{ color: theme.colors.muted }}>@{profile.username}</Text>
@@ -286,6 +461,7 @@ export default function UserProfileScreen({ route, navigation }: Props) {
                 <Text style={{ color: theme.colors.text }}>{profileError ?? 'Profile unavailable.'}</Text>
               )}
             </Card>
+            {!profileLoading && renderFriendActions()}
             <Text style={[styles.sectionHeading, { color: theme.colors.text }]}>Posts</Text>
           </View>
         }
@@ -311,7 +487,13 @@ export default function UserProfileScreen({ route, navigation }: Props) {
         }
         contentContainerStyle={styles.listContent}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+      <ImagePreviewModal
+        visible={previewVisible}
+        uri={(profile?.avatar_url || AVATAR_FALLBACK) ?? undefined}
+        onClose={() => setPreviewVisible(false)}
+      />
+    </>
   );
 }
 
@@ -375,5 +557,22 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: spacing.xl * 2,
+  },
+  friendActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+  },
+  friendPrimaryButton: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: 999,
+  },
+  friendSecondaryButton: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: 999,
+    borderWidth: 1,
   },
 });

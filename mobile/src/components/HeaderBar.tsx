@@ -24,20 +24,6 @@ export default function HeaderBar({ title, subtitle, left, right, showProfileAva
   const avatarUri = currentUser?.avatar_url;
   const initials = currentUser?.first_name?.[0] || currentUser?.username?.[0] || '?';
 
-  const profileAvatar = canShowAvatar ? (
-    <TouchableOpacity
-      onPress={() => navigation.navigate('Profile')}
-      activeOpacity={0.85}
-      style={[styles.profileButton, { borderColor: theme.colors.border }]}
-    >
-      {avatarUri ? (
-        <Image source={{ uri: avatarUri }} style={styles.profileImage} />
-      ) : (
-        <Text style={[styles.profileInitials, { color: theme.colors.text }]}>{initials}</Text>
-      )}
-    </TouchableOpacity>
-  ) : null;
-
   return (
     <View
       style={[
@@ -78,7 +64,22 @@ export default function HeaderBar({ title, subtitle, left, right, showProfileAva
           </Text>
         </View>
       </View>
-      <View style={[styles.side, styles.sideRight]}>{right ?? profileAvatar}</View>
+      <View style={[styles.side, styles.sideRight]}>
+        {right ??
+          (canShowAvatar ? (
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Profile')}
+              activeOpacity={0.85}
+              style={[styles.profileButton, { borderColor: theme.colors.border }]}
+            >
+              {avatarUri ? (
+                <Image source={{ uri: avatarUri }} style={styles.profileImage} />
+              ) : (
+                <Text style={[styles.profileInitials, { color: theme.colors.text }]}>{initials}</Text>
+              )}
+            </TouchableOpacity>
+          ) : null)}
+      </View>
     </View>
   );
 }

@@ -24,6 +24,9 @@ import AdminUserEditScreen from './screens/AdminUserEditScreen';
 import FacultyListScreen from './screens/FacultyListScreen';
 import StudentListScreen from './screens/StudentListScreen';
 import UserProfileScreen from './screens/UserProfileScreen';
+import InboxScreen from './screens/InboxScreen';
+import ConversationScreen from './screens/ConversationScreen';
+import FriendsScreen from './screens/FriendsScreen';
 import { AuthContext, AuthProvider } from './context/AuthContext';
 import { registerForPushNotificationsAsync } from './push/registerPush';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -41,6 +44,8 @@ export type RootStackParamList = {
   AdminUserList: undefined;
   AdminUserEdit: { id: number };
   UserProfile: { userId: number; name?: string };
+  Conversation: { conversationId: number; title?: string; noticeTitle?: string | null };
+  Friends: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -69,7 +74,7 @@ function Router() {
               SearchTab: 'magnify',
               TrendingTab: 'fire',
               FavoritesTab: focused ? 'bookmark' : 'bookmark-outline',
-              ProfileTab: focused ? 'account-circle' : 'account-circle-outline',
+              InboxTab: focused ? 'email' : 'email-outline',
             };
             const name = map[route.name] || 'dots-circle';
             return <MaterialCommunityIcons name={name as any} color={color} size={size} />;
@@ -80,7 +85,7 @@ function Router() {
         <Tab.Screen name="SearchTab" component={HomeScreen} options={{ title: 'Search' }} initialParams={{ mode: 'search' }} />
         <Tab.Screen name="TrendingTab" component={HomeScreen} options={{ title: 'Trending' }} initialParams={{ mode: 'trending' }} />
         <Tab.Screen name="FavoritesTab" component={HomeScreen} options={{ title: 'Favorites' }} initialParams={{ mode: 'favorites' }} />
-        <Tab.Screen name="ProfileTab" component={ProfileScreen} options={{ title: 'Profile' }} />
+        <Tab.Screen name="InboxTab" component={InboxScreen} options={{ title: 'Inbox' }} />
       </Tab.Navigator>
     );
   };
@@ -103,6 +108,8 @@ function Router() {
           <Stack.Screen name="AdminUserList" component={AdminUserListScreen} />
           <Stack.Screen name="AdminUserEdit" component={AdminUserEditScreen} />
           <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+          <Stack.Screen name="Conversation" component={ConversationScreen} />
+          <Stack.Screen name="Friends" component={FriendsScreen} />
         </>
       )}
     </Stack.Navigator>

@@ -29,6 +29,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import type { RootStackParamList } from '../App';
 import { getNoticeCategoryLabel } from '../constants/notices';
 import AttachmentMediaPlayer from '../components/AttachmentMediaPlayer';
+import AttachmentPreviewModal from '../components/AttachmentPreviewModal';
+import { fetchFriendRequests } from '../api/friends';
 
 type NoticeViewMode = 'feed' | 'trending' | 'most' | 'favorites' | 'suggested' | 'search';
 type NoticeSection = 'for_you' | 'campus_life' | 'business' | 'education';
@@ -48,6 +50,9 @@ type Notice = {
   created_by_username: string;
   created_by_full_name?: string;
   created_by_avatar?: string | null;
+  created_by_friend_status?: string;
+  created_by_friend_request_id?: number | null;
+  created_by_friend_request_id?: number | null;
   created_at: string;
   department?: string;
   views_count?: number;
@@ -58,6 +63,7 @@ type Notice = {
   is_pinned?: boolean;
   attachments?: NoticeAttachment[];
   category?: string | null;
+  created_by_friend_status?: string;
 };
 
 const FEED_SECTIONS: { key: NoticeSection; label: string; icon: string }[] = [
@@ -96,6 +102,7 @@ export default function HomeScreen({ navigation, route }: any) {
   const [section, setSection] = useState<NoticeSection>('for_you');
   const [query, setQuery] = useState('');
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
+  const [globalPreview, setGlobalPreview] = useState<NoticeAttachment | null>(null);
   const isOnline = net.isConnected !== false;
   const noticeRefetchInterval = isOnline ? 15000 : false;
   const trendingRefetchInterval = isOnline ? 20000 : false;
@@ -219,6 +226,10 @@ export default function HomeScreen({ navigation, route }: any) {
     refetchOnMount: 'always',
   });
   const { refetch: refetchTrending } = trendingQuery;
+  const friendRequestsQuery = useQuery({
+    queryKey: ['friend-requests', 'incoming', 'badge'],
+    queryFn: () => fetchFriendRequests('incoming'),
+  });
   useFocusEffect(
     useCallback(() => {
       refetch();
@@ -431,21 +442,25 @@ export default function HomeScreen({ navigation, route }: any) {
                   switch (attachment.file_type) {
                     case 'image':
                       return (
-                        <View style={styles.trendingMediaWrapper}>
-                          <Image source={{ uri: attachment.url }} style={styles.trendingMedia} resizeMode="cover" />
-                        </View>
+                        <TouchableOpacity activeOpacity={0.9} onPress={() => setGlobalPreview(attachment)}>
+                          <View style={styles.trendingMediaWrapper}>
+                            <Image source={{ uri: attachment.url }} style={styles.trendingMedia} resizeMode="cover" />
+                          </View>
+                        </TouchableOpacity>
                       );
                     case 'video':
                     case 'audio':
                       return (
-                        <View style={styles.trendingMediaWrapper}>
-                          <AttachmentMediaPlayer
-                            uri={attachment.url}
-                            style={styles.trendingVideo}
-                            showControls
-                            contentFit="contain"
-                          />
-                        </View>
+                        <TouchableOpacity activeOpacity={0.9} onPress={() => setGlobalPreview(attachment)}>
+                          <View style={styles.trendingMediaWrapper}>
+                            <AttachmentMediaPlayer
+                              uri={attachment.url}
+                              style={styles.trendingVideo}
+                              showControls
+                              contentFit="contain"
+                            />
+                          </View>
+                        </TouchableOpacity>
                       );
                     default:
                       return (
@@ -606,17 +621,15 @@ export default function HomeScreen({ navigation, route }: any) {
   }, [currentUser?.avatar_url]);
 
   const headerActions = useMemo(() => {
-    const fallbackAvatar =
-      'https://ui-avatars.com/api/?name=Bugema&background=4338CA&color=fff&size=64';
-    const avatarUri = currentUser?.avatar_url || fallbackAvatar;
     return (
       <View style={styles.headerIconRow}>
-        <TouchableOpacity
-          onPress={() => setProfileMenuVisible(true)}
-          activeOpacity={0.85}
-          style={styles.headerAvatarButton}
-        >
-          <Image source={{ uri: avatarUri }} style={styles.headerAvatar} />
+        <TouchableOpacity onPress={() => navigateTo('Friends')} activeOpacity={0.85}>
+          <View>
+            <MaterialCommunityIcons name="account-multiple-outline" size={22} color={theme.colors.text} />
+            {(friendRequestsQuery.data?.length || 0) > 0 ? (
+              <View style={[styles.friendBadge, { backgroundColor: theme.colors.primary }]} />
+            ) : null}
+          </View>
         </TouchableOpacity>
         {canManageUsers ? (
           <TouchableOpacity onPress={() => navigateTo('AdminUserList')} activeOpacity={0.85}>
@@ -628,12 +641,13 @@ export default function HomeScreen({ navigation, route }: any) {
         </TouchableOpacity>
       </View>
     );
-  }, [canManageUsers, currentUser?.avatar_url, navigateTo, theme.colors.primary, theme.colors.text]);
+  }, [canManageUsers, friendRequestsQuery.data?.length, navigateTo, theme.colors.primary, theme.colors.text]);
 
   const headerTitle = 'Home';
 
   return (
-    <SafeAreaView style={themedContainer}>
+    <>
+      <SafeAreaView style={themedContainer}>
       <Modal
         transparent
         visible={profileMenuVisible}
@@ -688,7 +702,13 @@ export default function HomeScreen({ navigation, route }: any) {
         ListFooterComponent={renderFooter}
         contentContainerStyle={styles.listContent}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+      <AttachmentPreviewModal
+        visible={!!globalPreview}
+        attachment={globalPreview}
+        onClose={() => setGlobalPreview(null)}
+      />
+    </>
   );
 }
 
@@ -763,6 +783,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
+  },
+  friendBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
   menuBackdrop: {
     flex: 1,

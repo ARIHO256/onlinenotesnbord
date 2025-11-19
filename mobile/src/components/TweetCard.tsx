@@ -1,10 +1,20 @@
-import React from 'react';
-import { Image, Linking, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState } from 'react';
+import {
+  Image,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+
 import { useTheme } from '../context/ThemeContext';
 import { spacing } from '../theme';
 import { getNoticeCategoryLabel } from '../constants/notices';
 import AttachmentMediaPlayer from './AttachmentMediaPlayer';
+import AttachmentPreviewModal from './AttachmentPreviewModal';
 
 export type NoticeAttachment = {
   id: number;
@@ -60,12 +70,19 @@ export default function TweetCard({
   onAuthorPress,
 }: NoticeCardProps) {
   const { theme } = useTheme();
+  const [previewAttachment, setPreviewAttachment] =
+    useState<NoticeAttachment | null>(null);
+
   const displayName = created_by_full_name || created_by_username;
-  const handleAttachmentPress = (url?: string) => {
-    if (url) Linking.openURL(url);
-  };
   const media = attachments?.[0];
   const categoryLabel = getNoticeCategoryLabel(category);
+
+  const handleAttachmentPress = (url?: string) => {
+    if (url) {
+      Linking.openURL(url);
+    }
+  };
+
   const authorPressableProps = onAuthorPress
     ? {
         onPress: onAuthorPress,
@@ -76,7 +93,9 @@ export default function TweetCard({
   const avatar = created_by_avatar ? (
     <Image source={{ uri: created_by_avatar }} style={styles.avatar} />
   ) : (
-    <View style={[styles.avatar, { backgroundColor: theme.colors.surface }]} />
+    <View
+      style={[styles.avatar, { backgroundColor: theme.colors.surface }]}
+    />
   );
 
   const avatarBlock = authorPressableProps ? (
@@ -88,106 +107,229 @@ export default function TweetCard({
   const authorMeta = (
     <>
       <View style={styles.header}>
-        <Text style={[styles.name, { color: theme.colors.text }]}>{displayName}</Text>
-        <Text style={[styles.meta, { color: theme.colors.muted }]}>{created_at}</Text>
+        <Text style={[styles.name, { color: theme.colors.text }]}>
+          {displayName}
+        </Text>
+        <Text style={[styles.meta, { color: theme.colors.muted }]}>
+          {created_at}
+        </Text>
       </View>
+
       {department ? (
-        <Text style={[styles.department, { color: theme.colors.muted }]}>{department}</Text>
+        <Text style={[styles.department, { color: theme.colors.muted }]}>
+          {department}
+        </Text>
       ) : null}
+
       {categoryLabel ? (
-        <View style={[styles.badge, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
-          <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{categoryLabel}</Text>
+        <View
+          style={[
+            styles.badge,
+            {
+              borderColor: theme.colors.border,
+              backgroundColor: theme.colors.surface,
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.badgeText,
+              { color: theme.colors.primary },
+            ]}
+          >
+            {categoryLabel}
+          </Text>
         </View>
       ) : null}
     </>
   );
 
   const authorBlock = authorPressableProps ? (
-    <TouchableOpacity {...authorPressableProps}>{authorMeta}</TouchableOpacity>
+    <TouchableOpacity {...authorPressableProps}>
+      {authorMeta}
+    </TouchableOpacity>
   ) : (
     authorMeta
   );
 
+  const renderMedia = () => {
+    if (!media) return null;
+
+    if (media.file_type === 'image') {
+      return (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => setPreviewAttachment(media)}
+        >
+          <Image source={{ uri: media.url }} style={styles.media} />
+        </TouchableOpacity>
+      );
+    }
+
+    if (media.file_type === 'video' || media.file_type === 'audio') {
+      return (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => setPreviewAttachment(media)}
+        >
+          <AttachmentMediaPlayer
+            uri={media.url}
+            style={styles.media}
+            showControls
+            contentFit="cover"
+          />
+        </TouchableOpacity>
+      );
+    }
+
+    return (
+      <TouchableOpacity
+        onPress={() => handleAttachmentPress(media.url)}
+        style={[
+          styles.document,
+          {
+            backgroundColor: theme.colors.surface,
+            borderColor: theme.colors.border,
+          },
+        ]}
+      >
+        <MaterialCommunityIcons
+          name="file-document-outline"
+          size={20}
+          color={theme.colors.primary}
+        />
+        <Text
+          style={{
+            color: theme.colors.primary,
+            fontWeight: '600',
+          }}
+        >
+          {media.original_name || 'View attachment'}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.container,
-        { borderBottomColor: theme.colors.border, backgroundColor: theme.colors.card },
-        pressed && { opacity: 0.92 },
-      ]}
-    >
-      <View style={styles.row}>
-        {avatarBlock}
-        <View style={styles.body}>
-          {authorBlock}
-          <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
-          <Text style={[styles.description, { color: theme.colors.text }]}>{description}</Text>
-          {media ? (
-            media.file_type === 'image' ? (
-              <Image source={{ uri: media.url }} style={styles.media} />
-            ) : media.file_type === 'video' || media.file_type === 'audio' ? (
-              <AttachmentMediaPlayer
-                uri={media.url}
-                style={styles.media}
-                showControls
-                contentFit="cover"
-              />
-            ) : (
+    <>
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.container,
+          {
+            borderBottomColor: theme.colors.border,
+            backgroundColor: theme.colors.card,
+          },
+          pressed && { opacity: 0.92 },
+        ]}
+      >
+        <View style={styles.row}>
+          {avatarBlock}
+
+          <View style={styles.body}>
+            {authorBlock}
+
+            <Text style={[styles.title, { color: theme.colors.text }]}>
+              {title}
+            </Text>
+
+            <Text
+              style={[
+                styles.description,
+                { color: theme.colors.text },
+              ]}
+            >
+              {description}
+            </Text>
+
+            {renderMedia()}
+
+            <View style={styles.actions}>
               <TouchableOpacity
-                onPress={() => handleAttachmentPress(media.url)}
-                style={[
-                  styles.document,
-                  {
-                    backgroundColor: theme.colors.surface,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
+                style={styles.action}
+                onPress={onCommentPress}
               >
-                <MaterialCommunityIcons name="file-document-outline" size={20} color={theme.colors.primary} />
-                <Text style={{ color: theme.colors.primary, fontWeight: '600' }}>
-                  {media.original_name || 'View attachment'}
+                <MaterialCommunityIcons
+                  name="chat-outline"
+                  size={18}
+                  color={theme.colors.muted}
+                />
+                <Text
+                  style={[
+                    styles.actionLabel,
+                    { color: theme.colors.muted },
+                  ]}
+                >
+                  {comments_count ?? 0}
                 </Text>
               </TouchableOpacity>
-            )
-          ) : null}
-          <View style={styles.actions}>
-            <TouchableOpacity style={styles.action} onPress={onCommentPress}>
-              <MaterialCommunityIcons name="chat-outline" size={18} color={theme.colors.muted} />
-              <Text style={[styles.actionLabel, { color: theme.colors.muted }]}>{comments_count ?? 0}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.action} onPress={onLikeToggle}>
-              <MaterialCommunityIcons
-                name={is_liked ? 'heart' : 'heart-outline'}
-                size={18}
-                color={is_liked ? '#f91880' : theme.colors.muted}
-              />
-              <Text
-                style={[
-                  styles.actionLabel,
-                  { color: is_liked ? '#f91880' : theme.colors.muted },
-                ]}
+
+              <TouchableOpacity
+                style={styles.action}
+                onPress={onLikeToggle}
               >
-                {likes_count ?? 0}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.action} onPress={onFavoriteToggle}>
-              <MaterialCommunityIcons
-                name={is_favorited ? 'bookmark' : 'bookmark-outline'}
-                size={18}
-                color={is_favorited ? theme.colors.primary : theme.colors.muted}
-              />
-            </TouchableOpacity>
-            <View style={styles.viewChip}>
-              {is_pinned ? (
-                <MaterialCommunityIcons name="pin" size={14} color={theme.colors.primary} />
-              ) : null}
-              <Text style={[styles.meta, { color: theme.colors.muted }]}>Views {views_count ?? 0}</Text>
+                <MaterialCommunityIcons
+                  name={is_liked ? 'heart' : 'heart-outline'}
+                  size={18}
+                  color={is_liked ? '#f91880' : theme.colors.muted}
+                />
+                <Text
+                  style={[
+                    styles.actionLabel,
+                    {
+                      color: is_liked
+                        ? '#f91880'
+                        : theme.colors.muted,
+                    },
+                  ]}
+                >
+                  {likes_count ?? 0}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.action}
+                onPress={onFavoriteToggle}
+              >
+                <MaterialCommunityIcons
+                  name={is_favorited ? 'bookmark' : 'bookmark-outline'}
+                  size={18}
+                  color={
+                    is_favorited
+                      ? theme.colors.primary
+                      : theme.colors.muted
+                  }
+                />
+              </TouchableOpacity>
+
+              <View style={styles.viewChip}>
+                {is_pinned ? (
+                  <MaterialCommunityIcons
+                    name="pin"
+                    size={14}
+                    color={theme.colors.primary}
+                  />
+                ) : null}
+                <Text
+                  style={[
+                    styles.meta,
+                    { color: theme.colors.muted },
+                  ]}
+                >
+                  Views {views_count ?? 0}
+                </Text>
+              </View>
             </View>
           </View>
         </View>
-      </View>
-    </Pressable>
+      </Pressable>
+
+      <AttachmentPreviewModal
+        attachment={previewAttachment}
+        visible={!!previewAttachment}
+        onClose={() => setPreviewAttachment(null)}
+      />
+    </>
   );
 }
 
@@ -285,5 +427,3 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
 });
-
-
