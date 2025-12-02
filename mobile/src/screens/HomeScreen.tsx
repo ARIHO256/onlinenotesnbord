@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   Modal,
@@ -34,6 +35,8 @@ import { fetchFriendRequests } from '../api/friends';
 
 type NoticeViewMode = 'feed' | 'trending' | 'most' | 'favorites' | 'suggested' | 'search';
 type NoticeSection = 'for_you' | 'campus_life' | 'business' | 'education';
+
+const OFFICIAL_CARD_WIDTH = 240;
 
 type NoticeAttachment = {
   id: number;
@@ -304,7 +307,7 @@ export default function HomeScreen({ navigation, route }: any) {
       );
   }, [officialNoticesQuery.data]);
 
-  const showOfficialNotices = viewMode === 'feed' && officialNoticesList.length > 0;
+  const showOfficialNotices = viewMode === 'feed';
   const isInitialLoading = isFetching && !data;
   const renderSectionChip = useCallback(
     (option: (typeof FEED_SECTIONS)[number]) => {
@@ -400,9 +403,17 @@ export default function HomeScreen({ navigation, route }: any) {
   const renderOfficialNotices = useMemo(() => {
     if (!showOfficialNotices) return null;
     const cardStyle = {
-      backgroundColor: theme.colors.card,
+      backgroundColor: theme.colors.surface,
       borderColor: theme.colors.border,
     };
+    const renderEmptyOfficial = () => (
+      <View style={[styles.trendingCard, cardStyle, { width: OFFICIAL_CARD_WIDTH, alignItems: 'center', justifyContent: 'center' }]}>
+        <MaterialCommunityIcons name="shield-check-outline" size={24} color={theme.colors.muted} />
+        <Text style={{ color: theme.colors.muted, marginTop: spacing.xs, textAlign: 'center' }}>
+          No official notices yet.
+        </Text>
+      </View>
+    );
     return (
       <View style={styles.trendingSection}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
@@ -412,9 +423,32 @@ export default function HomeScreen({ navigation, route }: any) {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          decelerationRate="fast"
+          snapToInterval={OFFICIAL_CARD_WIDTH + spacing.sm}
+          snapToAlignment="start"
+          scrollEventThrottle={16}
           contentContainerStyle={styles.trendingScrollContent}
         >
-          {officialNoticesList.slice(0, 8).map((item, index) => {
+          {(officialNoticesQuery.isLoading && officialNoticesList.length === 0
+            ? Array.from({ length: 3 })
+            : officialNoticesList.slice(0, 8)
+          ).map((item, index) => {
+            if (!item) {
+              return (
+                <View key={`official-skeleton-${index}`} style={[styles.trendingCard, cardStyle, { width: OFFICIAL_CARD_WIDTH }]}>
+                  <View style={[styles.trendingHeader, { opacity: 0.4 }]}>
+                    <View style={[styles.trendingAvatar, styles.avatarPlaceholder, { backgroundColor: theme.colors.border }]} />
+                    <View style={{ flex: 1, gap: 6 }}>
+                      <View style={{ height: 12, width: '70%', backgroundColor: theme.colors.border, borderRadius: 6 }} />
+                      <View style={{ height: 10, width: '40%', backgroundColor: theme.colors.border, borderRadius: 6 }} />
+                    </View>
+                  </View>
+                  <View style={{ height: 10 }} />
+                  <View style={{ height: 12, width: '50%', backgroundColor: theme.colors.border, borderRadius: 6 }} />
+                  <View style={{ height: 80, width: '100%', backgroundColor: theme.colors.surface, borderRadius: 14, marginTop: spacing.sm }} />
+                </View>
+              );
+            }
             const attachment = item?.attachments && item.attachments.length > 0 ? item.attachments[0] : undefined;
             const categoryLabel = getNoticeCategoryLabel(item?.category);
             return (
@@ -422,7 +456,7 @@ export default function HomeScreen({ navigation, route }: any) {
                 key={`official-${item?.id ?? index}`}
                 activeOpacity={0.85}
                 onPress={() => item && navigateTo('NoticeDetail', { id: item.id })}
-                style={[styles.trendingCard, cardStyle]}
+                style={[styles.trendingCard, cardStyle, { width: OFFICIAL_CARD_WIDTH }]}
               >
                 <TouchableOpacity
                   activeOpacity={0.85}
@@ -456,7 +490,7 @@ export default function HomeScreen({ navigation, route }: any) {
                   <View
                     style={[
                       styles.categoryPill,
-                      { backgroundColor: theme.colors.border, marginTop: spacing.xs },
+                      { backgroundColor: `${theme.colors.primary}1A`, marginTop: spacing.xs },
                     ]}
                   >
                     <Text style={[styles.categoryPillText, { color: theme.colors.primary }]}>
@@ -514,6 +548,7 @@ export default function HomeScreen({ navigation, route }: any) {
               </TouchableOpacity>
             );
           })}
+          {officialNoticesList.length === 0 && !officialNoticesQuery.isLoading ? renderEmptyOfficial() : null}
         </ScrollView>
       </View>
     );
@@ -523,10 +558,12 @@ export default function HomeScreen({ navigation, route }: any) {
     secondaryTextColor,
     showOfficialNotices,
     theme.colors.border,
-    theme.colors.card,
+    theme.colors.muted,
+    theme.colors.surface,
     theme.colors.primary,
     theme.colors.text,
     officialNoticesList,
+    officialNoticesQuery.isLoading,
   ]);
 
   const searchHeader = useMemo(() => {
@@ -878,7 +915,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
   },
   searchBarContainer: {
-    paddingRight: spacing.lg,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
   },
   searchBar: {
@@ -959,16 +996,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   trendingScrollContent: {
-    paddingRight: spacing.lg,
+    paddingHorizontal: spacing.lg,
     gap: spacing.md,
   },
   modeBanner: {
     paddingVertical: spacing.sm,
   },
   trendingCard: {
-    width: 220,
+    width: OFFICIAL_CARD_WIDTH,
     padding: spacing.md,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     marginRight: spacing.sm,
   },
@@ -997,11 +1034,11 @@ const styles = StyleSheet.create({
   },
   trendingMedia: {
     width: '100%',
-    height: 120,
+    height: 150,
   },
   trendingVideo: {
     width: '100%',
-    height: 140,
+    height: 160,
   },
   trendingDocument: {
     marginTop: spacing.sm,

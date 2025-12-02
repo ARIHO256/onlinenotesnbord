@@ -7,6 +7,7 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -42,6 +43,7 @@ type TabKey = typeof TABS[number]['key'];
 export default function FriendsScreen({ navigation }: any) {
   const { theme } = useTheme();
   const [tab, setTab] = useState<TabKey>('requests');
+  const [query, setQuery] = useState('');
   const friendsQuery = useQuery({ queryKey: ['friends'], queryFn: fetchFriends });
   const incomingQuery = useQuery({ queryKey: ['friend-requests', 'incoming'], queryFn: () => fetchFriendRequests('incoming') });
   const outgoingQuery = useQuery({ queryKey: ['friend-requests', 'outgoing'], queryFn: () => fetchFriendRequests('outgoing') });
@@ -87,6 +89,33 @@ export default function FriendsScreen({ navigation }: any) {
       Alert.alert('Error', 'Unable to accept this request.');
     }
   }, [refreshAll]);
+
+  const matchesQuery = useCallback((profile: FriendProfile) => {
+    if (!query.trim()) return true;
+    const q = query.trim().toLowerCase();
+    const name = `${profile.first_name || ''} ${profile.last_name || ''}`.trim().toLowerCase();
+    const username = (profile.username || '').toLowerCase();
+    const dept = (profile.department || '').toLowerCase();
+    const designation = (profile.designation || '').toLowerCase();
+    return name.includes(q) || username.includes(q) || dept.includes(q) || designation.includes(q);
+  }, [query]);
+
+  const filteredFriends = useMemo(
+    () => (friendsQuery.data || []).filter(matchesQuery),
+    [friendsQuery.data, matchesQuery]
+  );
+  const filteredIncoming = useMemo(
+    () => (incomingQuery.data || []).filter((req) => matchesQuery(req.sender)),
+    [incomingQuery.data, matchesQuery]
+  );
+  const filteredOutgoing = useMemo(
+    () => (outgoingQuery.data || []).filter((req) => matchesQuery(req.receiver)),
+    [outgoingQuery.data, matchesQuery]
+  );
+  const filteredSuggestions = useMemo(() => {
+    const flattened = (allUsersPages?.pages || []).flatMap((p) => p.results || []);
+    return flattened.filter(matchesQuery);
+  }, [allUsersPages?.pages, matchesQuery]);
 
   const handleDecline = useCallback(async (request: FriendRequest) => {
     try {
@@ -187,9 +216,9 @@ export default function FriendsScreen({ navigation }: any) {
       activeOpacity={0.85}
     >
       <Text style={{ color: tab === key ? theme.colors.primaryContrast : theme.colors.text, fontWeight: '600' }}>{label}</Text>
-      {key === 'requests' && (incomingQuery.data?.length || 0) > 0 ? (
+      {key === 'requests' && (filteredIncoming.length || 0) > 0 ? (
         <View style={[styles.badge, { backgroundColor: theme.colors.primaryContrast }]}>
-          <Text style={{ color: theme.colors.primary }}>{incomingQuery.data?.length}</Text>
+          <Text style={{ color: theme.colors.primary }}>{filteredIncoming.length}</Text>
         </View>
       ) : null}
     </TouchableOpacity>
@@ -285,16 +314,16 @@ export default function FriendsScreen({ navigation }: any) {
       ) ?? [],
     [allUsersPages],
   );
-  const friendRequests = incomingQuery.data ?? [];
+  const friendRequests = filteredIncoming;
   const suggestions = useMemo(() => {
     const requestIds = new Set(friendRequests.map((req) => req.sender.id));
-    return allUsers.filter((profile) => !requestIds.has(profile.id)).slice(0, 6);
-  }, [allUsers, friendRequests]);
+    return filteredSuggestions.filter((profile) => !requestIds.has(profile.id)).slice(0, 6);
+  }, [filteredSuggestions, friendRequests]);
 
   const data = useMemo(() => {
-    if (tab === 'friends') return friendsQuery.data ?? [];
-    return friendRequests;
-  }, [friendRequests, friendsQuery.data, tab]);
+    if (tab === 'friends') return filteredFriends;
+    return filteredIncoming;
+  }, [filteredFriends, filteredIncoming, tab]);
 
   const currentUserId = currentUser?.id ?? null;
 
@@ -419,12 +448,12 @@ export default function FriendsScreen({ navigation }: any) {
     if (tab !== 'requests') return null;
     return (
       <View style={styles.requestsHeaderContainer}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={[styles.requestsTitle, { color: theme.colors.text }]}>Friend requests ({friendRequests.length})</Text>
           <Text style={[styles.requestsSubtitle, { color: theme.colors.muted }]}>People who want to connect</Text>
         </View>
         <TouchableOpacity onPress={refreshAll}>
-          <Text style={[styles.seeAllLink, { color: theme.colors.primary }]}>See all</Text>
+          <Text style={[styles.seeAllLink, { color: theme.colors.primary }]}>Refresh</Text>
         </TouchableOpacity>
       </View>
     );
@@ -467,6 +496,23 @@ export default function FriendsScreen({ navigation }: any) {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <HeaderBar title="Friends" subtitle="Manage your connections" />
+      <View style={[styles.searchBar, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+        <MaterialCommunityIcons name="magnify" size={18} color={theme.colors.muted} />
+        <TextInput
+          placeholder="Search people by name, username, department"
+          placeholderTextColor={theme.colors.muted}
+          value={query}
+          onChangeText={setQuery}
+          style={[styles.searchInput, { color: theme.colors.text }]}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {query ? (
+          <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <MaterialCommunityIcons name="close-circle" size={18} color={theme.colors.muted} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
       <View style={styles.tabRow}>{TABS.map(renderTabButton)}</View>
       <FlatList
         data={data}
@@ -513,6 +559,23 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: spacing.xs,
     paddingVertical: 2,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    gap: spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 0,
+    fontSize: 14,
   },
   requestsHeaderContainer: {
     paddingHorizontal: spacing.lg,

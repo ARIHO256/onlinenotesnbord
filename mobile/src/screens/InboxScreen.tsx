@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo } from 'react';
-import { FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { FlatList, Image, RefreshControl, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
@@ -19,6 +19,7 @@ const formatName = (user?: Conversation['other_user']) => {
 
 export default function InboxScreen({ navigation }: any) {
   const { theme } = useTheme();
+  const [query, setQuery] = useState('');
   const { data, refetch, isFetching } = useQuery({
     queryKey: ['conversations'],
     queryFn: fetchConversations,
@@ -31,6 +32,16 @@ export default function InboxScreen({ navigation }: any) {
   );
 
   const conversations = data ?? [];
+  const filtered = useMemo(() => {
+    if (!query.trim()) return conversations;
+    const q = query.trim().toLowerCase();
+    return conversations.filter((item) => {
+      const otherUser = item.other_user;
+      const name = formatName(otherUser).toLowerCase();
+      const preview = (item.last_message_preview || '').toLowerCase();
+      return name.includes(q) || preview.includes(q);
+    });
+  }, [conversations, query]);
 
   const renderItem = useCallback(
     ({ item }: { item: Conversation }) => {
@@ -101,23 +112,64 @@ export default function InboxScreen({ navigation }: any) {
   const listEmpty = useMemo(() => (
     <View style={styles.emptyState}>
       <MaterialCommunityIcons name="email-outline" size={36} color={theme.colors.muted} />
-      <Text style={[styles.emptyText, { color: theme.colors.muted }]}>No conversations yet.</Text>
+      <Text style={[styles.emptyText, { color: theme.colors.muted }]}>
+        {query ? 'No matches found.' : 'No conversations yet.'}
+      </Text>
       <Text style={{ color: theme.colors.muted, textAlign: 'center', marginTop: spacing.xs }}>
-        Reach out to a notice author to start a conversation.
+        {query ? 'Try another name or keyword.' : 'Reach out to a notice author to start a conversation.'}
       </Text>
     </View>
-  ), [theme.colors.muted]);
+  ), [query, theme.colors.muted]);
+
+  const headerCta = useMemo(() => (
+    <View style={{ paddingBottom: spacing.sm }}>
+      <TouchableOpacity
+        activeOpacity={0.88}
+        onPress={() => navigation?.navigate?.('Friends')}
+        style={[styles.startCard, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}
+      >
+        <View style={[styles.startIcon, { backgroundColor: theme.colors.primary + '1A' }]}>
+          <MaterialCommunityIcons name="message-plus-outline" size={18} color={theme.colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.startTitle, { color: theme.colors.text }]}>Start messaging</Text>
+          <Text style={{ color: theme.colors.muted, fontSize: 12 }}>
+            Open friends list or message an author from any notice.
+          </Text>
+        </View>
+        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.muted} />
+      </TouchableOpacity>
+      <View style={[styles.searchBar, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+        <MaterialCommunityIcons name="magnify" size={18} color={theme.colors.muted} />
+        <TextInput
+          placeholder="Search people or messages"
+          placeholderTextColor={theme.colors.muted}
+          value={query}
+          onChangeText={setQuery}
+          style={[styles.searchInput, { color: theme.colors.text }]}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {query ? (
+          <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <MaterialCommunityIcons name="close-circle" size={18} color={theme.colors.muted} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </View>
+  ), [navigation, query, theme.colors.border, theme.colors.muted, theme.colors.primary, theme.colors.surface, theme.colors.text]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <HeaderBar title="Inbox" subtitle="Direct messages" />
       <FlatList
-        data={conversations}
+        data={filtered}
         keyExtractor={(item) => String(item.id)}
         renderItem={renderItem}
         refreshControl={<RefreshControl refreshing={isFetching} onRefresh={() => refetch()} />}
         ListEmptyComponent={listEmpty}
-        contentContainerStyle={conversations.length === 0 ? styles.emptyContainer : undefined}
+        ListHeaderComponent={headerCta}
+        contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : undefined}
       />
     </SafeAreaView>
   );
@@ -189,5 +241,44 @@ const styles = StyleSheet.create({
   emptyContainer: {
     flexGrow: 1,
     justifyContent: 'center',
+  },
+  startCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: spacing.md,
+  },
+  startIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  startTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    gap: spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 0,
+    fontSize: 14,
   },
 });
