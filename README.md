@@ -1,6 +1,7 @@
 # NoticeBoard (Django + React Native)
 
-This project has been migrated to a Django REST backend and a React Native (Expo) mobile app while preserving the original functionality. Faculty can post notices, and students receive notices for their departments.
+The NoticeBoard project utilizes a Django REST backend and a React Native mobile application for faculty to post notices to specific student departments within an academic institution. Students receive notices based on their department and also universal notices from non-academic departments like the Library or Office. The project provides setup instructions for both the backend (Django) and mobile client (React Native/Expo), including steps for dependencies, database migrations, creating a superuser, and running development servers. It also outlines necessary Firebase prerequisites for features like push notifications, requiring a Firebase project, the google-services.json file, and deployed Cloud Functions. 
+
 - Download apk from [here](https://github.com/Ravi879/NoticeBoard/raw/master/Noticeboard.apk).
 
 ## Overview
